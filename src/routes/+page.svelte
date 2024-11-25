@@ -1,12 +1,12 @@
 <script>
-	import { Button, ChartD3 } from '$lib';
+	import { LineChart, ChartD3 } from '$lib';
 	let principal = $state(115000);
 	let interestRate = $state(10);
 	let timesCompounded = $state(12);
 	let monthlyContribution = $state(1500);
 	let currentAge = $state(50);
 	let retirementAge = $state(65);
-	let years = $derived(retirementAge - currentAge);
+	let years = $derived(Math.max(retirementAge - currentAge, 1));
 	let totalArray = $state([]);
 	let total = $state('');
 	let width = $state(1200);
@@ -28,11 +28,8 @@
 			runningTotal += monthlyContribution;
 
 			newArray.push({
-				date: new Date(currentYear, currentMonth).toLocaleDateString('en-US', {
-					month: 'short',
-					year: 'numeric'
-				}),
-				amount: +runningTotal.toFixed(2)
+				x: new Date(currentYear, currentMonth).getTime(),
+				y: +runningTotal.toFixed(2)
 			});
 
 			currentMonth++;
@@ -44,7 +41,7 @@
 
 		totalArray = newArray;
 
-		return newArray[newArray.length - 1].amount.toLocaleString('en-US', {
+		return newArray[newArray.length - 1].y.toLocaleString('en-US', {
 			style: 'currency',
 			currency: 'USD'
 		});
@@ -53,75 +50,123 @@
 	$effect(() => {
 		total = calculateCompoundInterest(principal, interestRate, years);
 	});
+
+	$effect(() => {
+		if (currentAge > retirementAge) {
+			currentAge = retirementAge - 1;
+		}
+	});
+	$effect(() => {
+		if (retirementAge < currentAge) {
+			retirementAge = currentAge + 1;
+		}
+	});
 </script>
 
 <div class="container" bind:clientWidth={width}>
 	<h1>Retirement Calculator</h1>
 	<div class="form">
-		<div class="form-group">
+		<div class="form-group contribution">
 			<label for="monthlyContribution">Monthly Contribution:</label>
 			<input type="number" bind:value={monthlyContribution} id="monthlyContribution" />
 		</div>
-		<div class="form-group">
+		<div class="form-group principal">
 			<label for="principal">Initial Principal:</label>
 			<input type="number" bind:value={principal} id="principal" />
 		</div>
-		<div class="form-group">
-			<label for="interestRate">Interest Rate:</label>
-			<input type="number" bind:value={interestRate} id="interestRate" />
+		<div class="form-group interestRate">
+			<label for="interestRate">Interest Rate: {interestRate}%</label>
+			<input type="range" bind:value={interestRate} id="interestRate" min="4" max="20" step=".25" />
 		</div>
-		<div class="form-group">
-			<label for="currentAge">Current Age:</label>
-			<input type="number" bind:value={currentAge} id="currentAge" />
+		<div class="form-group compounding">
+			<label for="timesCompounded">Compounded:</label>
+			<select bind:value={timesCompounded} id="timesCompounded">
+				<option value={1}>Annually</option>
+				<option value={4}>Quarterly</option>
+				<option value={12}>Monthly</option>
+			</select>
 		</div>
-		<div class="form-group">
-			<label for="retirementAge">Retirement Age:</label>
-			<input type="number" bind:value={retirementAge} id="retirementAge" />
+		<div class="form-group currentAge">
+			<label for="currentAge">Current Age: {currentAge}</label>
+			<input type="range" bind:value={currentAge} id="currentAge" min="18" max="100" step="1" />
 		</div>
-		<div class="form-group">
-			<label for="timesCompounded">Times Compounded:</label>
-			<div class="radio-group">
-				<label>
-					<input type="radio" name="compounding" bind:group={timesCompounded} value={1} />
-					Annually
-				</label>
-				<label>
-					<input type="radio" name="compounding" bind:group={timesCompounded} value={4} />
-					Quarterly
-				</label>
-				<label>
-					<input type="radio" name="compounding" bind:group={timesCompounded} value={12} />
-					Monthly
-				</label>
-			</div>
+		<div class="form-group retirementAge">
+			<label for="retirementAge">Retirement Age: {retirementAge}</label>
+			<input
+				type="range"
+				bind:value={retirementAge}
+				id="retirementAge"
+				min="19"
+				max="100"
+				step="1"
+			/>
 		</div>
 	</div>
 
-	<p>Total: {total}</p>
+	<div class="results">
+		<p class="years">Years of investing: <span>{years}</span></p>
+		<p class="total">Total: <span>{total}</span></p>
+	</div>
 
-	<ChartD3 data={totalArray} {width} />
+	<LineChart data={totalArray} />
 </div>
 
 <style>
-	.container {
-		width: 100vw;
-		max-width: 1200px;
-		margin: 0 auto;
-		display: grid;
-		place-items: center;
-		gap: 1.5rem;
+	.contribution {
+		grid-column: 1 / 4;
+		@container (max-width: 650px) {
+			grid-column: 1;
+		}
 	}
-	.form {
-		width: 100vw;
-		max-width: 1200px;
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-		gap: 1rem;
+	.principal {
+		grid-column: 4 / 7;
+		@container (max-width: 650px) {
+			grid-column: 1;
+		}
 	}
-	.form-group {
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
+	.compounding {
+		grid-column: 4 / 7;
+		@container (max-width: 650px) {
+			grid-column: 1;
+		}
+	}
+	.interestRate {
+		grid-column: 1 / 4;
+		@container (max-width: 650px) {
+			grid-column: 1;
+		}
+	}
+	.currentAge {
+		grid-column: 1 / 4;
+		@container (max-width: 650px) {
+			grid-column: 1;
+		}
+	}
+	.retirementAge {
+		grid-column: 4 / 7;
+		@container (max-width: 650px) {
+			grid-column: 1;
+		}
+	}
+
+	.years,
+	.total {
+		font-size: 1.5rem;
+		margin: 0;
 		width: 100%;
+		text-align: center;
+		span {
+			font-weight: 700;
+			font-family: 'Roboto Slab', serif;
+		}
+	}
+	.results {
+		display: flex;
+		gap: 1rem;
+		width: 100%;
+		max-width: 800px;
+		border-top: 1px solid #fff;
+		margin-top: 1rem;
+		padding-top: 1rem;
 	}
 </style>

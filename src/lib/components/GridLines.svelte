@@ -28,7 +28,7 @@
 
 <style>
 	.grid-line {
-		stroke: #e5e5e5;
+		stroke: #777;
 		stroke-width: 1px;
 		/* stroke-dasharray: 2, 2; */
 	}

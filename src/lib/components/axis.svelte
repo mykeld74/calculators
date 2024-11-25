@@ -67,7 +67,7 @@
 	});
 </script>
 
-<g class="axis" bind:this={g} {transform} />
+<g class="axis" class:left={position === 'left'} bind:this={g} {transform} />
 
 <style>
 	.axis {

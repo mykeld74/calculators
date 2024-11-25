@@ -7,7 +7,7 @@
 		label,
 		yoffset,
 		xoffset,
-		labelforx = true,
+		labelforx = 'Money',
 		labelfory = true,
 		textanchor = 'end'
 	} = $props();
@@ -35,10 +35,4 @@
 {/if}
 
 <style>
-	.labels-x-y {
-		font-size: 25px;
-		text {
-			transform: rotate(45deg);
-		}
-	}
 </style>
