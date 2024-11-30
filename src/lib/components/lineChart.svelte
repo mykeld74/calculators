@@ -1,11 +1,16 @@
 <script>
-	import { onMount } from 'svelte';
+	import { onMount, getContext } from 'svelte';
 	import Chart from 'chart.js/auto';
 	import 'chartjs-adapter-date-fns';
 
 	let { data } = $props();
 	let canvas;
 	let chart;
+	let currentTheme = $state(getContext('theme'));
+
+	$effect(() => {
+		console.log('currentTheme ', currentTheme);
+	});
 
 	$effect(() => {
 		if (canvas && data) {

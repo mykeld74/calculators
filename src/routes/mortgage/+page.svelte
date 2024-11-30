@@ -20,10 +20,10 @@
 	let annualInsurance = $state(2860);
 	let monthlyInsurance = $derived(annualInsurance / 12);
 	let loanOriginationDate = $state();
-	let width = $state(1200);
 	let baselineTotalInterest = $state(0);
 	let extraTotalInterest = $state(0);
 	let totalAmountPaidWithExtra = $state(0);
+
 	const updateDownPaymentPercentage = () => {
 		downPaymentPercentage = (downPayment / principal) * 100;
 		downPaymentPercentage = Math.round(downPaymentPercentage * 100) / 100;
@@ -372,7 +372,7 @@
 		}
 
 		td:first-child {
-			color: #dedede;
+			color: var(--tableFontColor);
 		}
 
 		td:last-child {

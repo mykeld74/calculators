@@ -1,17 +1,25 @@
 <script>
-	import { onMount } from 'svelte';
+	import { onMount, setContext } from 'svelte';
 	let { children } = $props();
 	import { ThemePicker, Nav } from '$lib';
 	import '$lib/css/reset.css';
 	import '$lib/css/styles.css';
+
 	let ready = $state(false);
+	let currentTheme = $state('default');
 
 	function setTheme(theme) {
 		const body = document.querySelector('body');
 		body.classList.remove('default', 'bp');
 		body.classList.add(theme);
 		localStorage.setItem('theme', theme);
+		currentTheme = theme;
+		setContext('theme', currentTheme);
 	}
+
+	$effect(() => {
+		setContext('theme', currentTheme);
+	});
 
 	onMount(() => {
 		const theme = localStorage.getItem('theme');
@@ -19,6 +27,7 @@
 			setTheme(theme);
 			ready = true;
 		} else {
+			currentTheme = 'default';
 			ready = true;
 		}
 	});

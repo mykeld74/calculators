@@ -76,7 +76,7 @@
 		</div>
 		<div class="form-group interestRate">
 			<label for="interestRate">Interest Rate: {interestRate}%</label>
-			<input type="range" bind:value={interestRate} id="interestRate" min="4" max="20" step=".25" />
+			<input type="range" bind:value={interestRate} id="interestRate" min="4" max="30" step=".25" />
 		</div>
 		<div class="form-group compounding">
 			<label for="timesCompounded">Compounded:</label>

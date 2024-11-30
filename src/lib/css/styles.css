@@ -5,6 +5,8 @@
 	--fontColor: oklch(1 0 0);
 	--mainBackgroundColor: oklch(0 0 0);
 	--fontColor: oklch(1 0 0);
+	--navBackgroundColor: oklch(1 0 0);
+	--tableFontColor: oklch(0.8 0 0);
 }
 body {
 	background: var(--mainBackgroundColor);
@@ -13,10 +15,23 @@ body {
 .bp {
 	--fontColor: oklch(44.03% 0.1603 303.37);
 	--mainBackgroundColor: oklch(0 0 270);
+	--navBackgroundColor: oklch(100% 0 0 / 80%);
+}
+.glacier {
+	--fontColor: oklch(1 0 270);
+	--mainBackgroundColor: var(--gradient-23);
+	--navBackgroundColor: oklch(48.15% 0.0332 238.9);
 }
 .default {
 	--fontColor: oklch(1 0 0);
-	--mainBackgroundColor: var(--gradient-23);
+	--mainBackgroundColor: oklch(0 0 0);
+	--navBackgroundColor: oklch(0 0 0);
+}
+.light {
+	--fontColor: oklch(0.1 0 0);
+	--mainBackgroundColor: oklch(1 0 0);
+	--navBackgroundColor: oklch(1 0 0);
+	--tableFontColor: oklch(0.25 0 0);
 }
 main {
 	padding-block-end: 2rem;
