@@ -127,6 +127,10 @@
 	});
 </script>
 
+<svelte:head>
+	<title>Mortgage Calculator | Big Bearded Dev</title>
+</svelte:head>
+
 <div class="container">
 	<h1>Mortgage Calculator</h1>
 	<div class="form">

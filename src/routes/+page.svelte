@@ -63,6 +63,10 @@
 	});
 </script>
 
+<svelte:head>
+	<title>Retirement Calculator | Big Bearded Dev</title>
+</svelte:head>
+
 <div class="container" bind:clientWidth={width}>
 	<h1>Retirement Calculator</h1>
 	<div class="form">
