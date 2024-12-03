@@ -1,45 +1,41 @@
 <script>
-	let theme = $state('default');
+	import { setContext, getContext, onMount } from 'svelte';
 
-	function setTheme(theme) {
-		const body = document.querySelector('body');
-		body.classList.remove('default', 'bp', 'glacier', 'light');
-		body.classList.add(theme);
-		localStorage.setItem('theme', theme);
+	let currentTheme = $state(getContext('theme'));
+	let ready = $state(false);
+
+	let { onSetTheme } = $props();
+
+	function setTheme(newTheme) {
+		onSetTheme(newTheme);
 	}
 </script>
 
 <div class="themePicker">
 	<p class="noMargin">Themes:</p>
 	<button
-		onclick={() => {
-			setTheme('default');
-		}}
+		onclick={() => setTheme('default')}
 		class="default themeButton"
-		aria-label="default Theme"
-		title="Default"
+		aria-label="Dark Theme"
+		title="Dark"
 	>
-		<span class="tipText">Default Theme</span>
+		<span class="tipText">Dark</span>
 	</button>
 	<button
-		onclick={() => {
-			setTheme('light');
-		}}
+		onclick={() => setTheme('light')}
 		class="light themeButton"
 		aria-label="light Theme"
 		title="Light"
 	>
-		<span class="tipText">Light Theme</span>
+		<span class="tipText">Light</span>
 	</button>
 	<button
-		onclick={() => {
-			setTheme('glacier');
-		}}
+		onclick={() => setTheme('glacier')}
 		class="glacier themeButton"
-		aria-label="Glacier Theme"
+		aria-label="Glacier"
 		title="Glacier"
 	>
-		<span class="tipText">Glacier Theme</span>
+		<span class="tipText">Glacier</span>
 	</button>
 	<button
 		onclick={() => setTheme('bp')}
@@ -47,7 +43,7 @@
 		aria-label="Black/Purple Theme"
 		title="Black/Purple"
 	>
-		<span class="tipText">Eclipse Theme</span>
+		<span class="tipText">Eclipse</span>
 	</button>
 </div>
 
@@ -70,7 +66,7 @@
 		background: linear-gradient(51deg, oklch(1 0 0) 0%, oklch(0.1 0 0) 100%);
 	}
 	.light {
-		background: linear-gradient(51deg, oklch(0.1 0 0) 0%, oklch(1 0 0) 100%);
+		background: linear-gradient(51deg, oklch(0.7 0 0) 0%, oklch(1 0 0) 100%);
 	}
 	.glacier {
 		background: linear-gradient(51deg, oklch(1 0 270) 0%, oklch(42.32% 0.0364 256.13) 100%);
@@ -87,7 +83,7 @@
 		visibility: visible;
 		opacity: 0.8;
 		position: absolute;
-		bottom: calc((100% + 2rem) * -1);
+		bottom: calc((100% + 1rem) * -1);
 		left: 50%;
 		transform: translateX(-50%);
 		background: #dedede;

@@ -6,10 +6,12 @@
 	let { data } = $props();
 	let canvas;
 	let chart;
-	let currentTheme = $state(getContext('theme'));
+	const themeStore = getContext('theme');
+	let currentTheme = $state('default');
+	let tickColor = $derived(currentTheme === 'light' ? '#000' : '#dedede');
 
-	$effect(() => {
-		console.log('currentTheme ', currentTheme);
+	themeStore.subscribe((value) => {
+		currentTheme = value;
 	});
 
 	$effect(() => {
@@ -44,7 +46,7 @@
 								unit: 'month'
 							},
 							ticks: {
-								color: '#dedede'
+								color: tickColor
 							},
 							grid: {
 								color: 'rgba(255, 255, 255, 0.1)'
@@ -52,7 +54,7 @@
 						},
 						y: {
 							ticks: {
-								color: '#dedede',
+								color: tickColor,
 								callback: (value) => {
 									return `${value.toLocaleString('en-US', {
 										style: 'currency',
@@ -85,7 +87,7 @@
 						},
 						legend: {
 							labels: {
-								color: '#dedede' // Legend text color
+								color: tickColor
 							}
 						}
 					},

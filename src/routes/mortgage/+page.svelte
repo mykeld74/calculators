@@ -1,7 +1,9 @@
 <script>
 	import { onMount } from 'svelte';
-	import { ChartD3, LineChart } from '../../lib';
-
+	import { LineChart } from '../../lib';
+	import { getContext } from 'svelte';
+	const isMobileStore = getContext('isMobile');
+	let isMobile = $state(false);
 	let principal = $state(342700);
 	let downPayment = $state(0);
 	let downPaymentPercentage = $state(0);
@@ -32,6 +34,9 @@
 		downPayment = principal * (downPaymentPercentage / 100);
 		downPayment = Math.round(downPayment * 100) / 100;
 	};
+	isMobileStore.subscribe((value) => {
+		isMobile = value;
+	});
 
 	function calculateMonthlyPayment(loanAmount, interestRate, years, extraPayment = 0) {
 		const monthlyRate = interestRate / 12 / 100;

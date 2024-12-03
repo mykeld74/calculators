@@ -1,35 +1,49 @@
 <script>
 	import { onMount, setContext } from 'svelte';
+	import { writable } from 'svelte/store';
 	let { children } = $props();
 	import { ThemePicker, Nav } from '$lib';
 	import '$lib/css/reset.css';
 	import '$lib/css/styles.css';
 
 	let ready = $state(false);
-	let currentTheme = $state('default');
+	const themeStore = writable('default');
+	const isMobileStore = writable(false);
 
-	function setTheme(theme) {
+	setContext('theme', themeStore);
+	setContext('isMobile', isMobileStore);
+
+	function setTheme(newTheme) {
 		const body = document.querySelector('body');
-		body.classList.remove('default', 'bp');
-		body.classList.add(theme);
-		localStorage.setItem('theme', theme);
-		currentTheme = theme;
-		setContext('theme', currentTheme);
+		body.classList.remove('default', 'bp', 'glacier', 'light');
+		body.classList.add(newTheme);
+		localStorage.setItem('theme', newTheme);
+		themeStore.set(newTheme);
 	}
 
-	$effect(() => {
-		setContext('theme', currentTheme);
-	});
+	let innerWidth = $state();
+
+	function checkIsMobile() {
+		isMobileStore.set(innerWidth <= 768);
+	}
 
 	onMount(() => {
-		const theme = localStorage.getItem('theme');
-		if (theme) {
-			setTheme(theme);
+		const savedTheme = localStorage.getItem('theme');
+		if (savedTheme) {
+			setTheme(savedTheme);
 			ready = true;
 		} else {
-			currentTheme = 'default';
+			themeStore.set('default');
 			ready = true;
 		}
+
+		// Set initial mobile state
+		isMobileStore.set(window.innerWidth <= 768);
+
+		// Update on resize
+		window.addEventListener('resize', () => {
+			isMobileStore.set(window.innerWidth <= 768);
+		});
 	});
 </script>
 
@@ -42,8 +56,10 @@
 	/>
 </svelte:head>
 
+<svelte:window bind:innerWidth onresize={checkIsMobile} />
+
 {#if ready}
-	<ThemePicker />
+	<ThemePicker onSetTheme={(theme) => setTheme(theme)} />
 	<Nav />
 	<main>{@render children()}</main>
 {/if}

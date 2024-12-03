@@ -1,5 +1,8 @@
 <script>
-	import { LineChart, ChartD3 } from '$lib';
+	import { LineChart, interestRates, currentAgeDropdown, retirementAgeDropdown } from '$lib';
+	import { getContext } from 'svelte';
+	const isMobileStore = getContext('isMobile');
+	let isMobile = $state(false);
 	let principal = $state(115000);
 	let interestRate = $state(10);
 	let timesCompounded = $state(12);
@@ -10,6 +13,10 @@
 	let totalArray = $state([]);
 	let total = $state('');
 	let width = $state(1200);
+
+	isMobileStore.subscribe((value) => {
+		isMobile = value;
+	});
 
 	function calculateCompoundInterest(principal, interestRate, years) {
 		const ir = interestRate / 100;
@@ -80,7 +87,22 @@
 		</div>
 		<div class="form-group interestRate">
 			<label for="interestRate">Interest Rate: {interestRate}%</label>
-			<input type="range" bind:value={interestRate} id="interestRate" min="4" max="30" step=".25" />
+			{#if isMobile}
+				<select bind:value={interestRate}>
+					{#each interestRates() as rate}
+						<option value={rate}>{rate}%</option>
+					{/each}
+				</select>
+			{:else}
+				<input
+					type="range"
+					bind:value={interestRate}
+					id="interestRate"
+					min="4"
+					max="30"
+					step=".25"
+				/>
+			{/if}
 		</div>
 		<div class="form-group compounding">
 			<label for="timesCompounded">Compounded:</label>
@@ -92,18 +114,34 @@
 		</div>
 		<div class="form-group currentAge">
 			<label for="currentAge">Current Age: {currentAge}</label>
-			<input type="range" bind:value={currentAge} id="currentAge" min="18" max="100" step="1" />
+			{#if isMobile}
+				<select bind:value={currentAge}>
+					{#each currentAgeDropdown() as age}
+						<option value={age}>{age}</option>
+					{/each}
+				</select>
+			{:else}
+				<input type="range" bind:value={currentAge} id="currentAge" min="18" max="100" step="1" />
+			{/if}
 		</div>
 		<div class="form-group retirementAge">
 			<label for="retirementAge">Retirement Age: {retirementAge}</label>
-			<input
-				type="range"
-				bind:value={retirementAge}
-				id="retirementAge"
-				min="19"
-				max="100"
-				step="1"
-			/>
+			{#if isMobile}
+				<select bind:value={retirementAge}>
+					{#each retirementAgeDropdown() as age}
+						<option value={age}>{age}</option>
+					{/each}
+				</select>
+			{:else}
+				<input
+					type="range"
+					bind:value={retirementAge}
+					id="retirementAge"
+					min="19"
+					max="100"
+					step="1"
+				/>
+			{/if}
 		</div>
 	</div>
 
