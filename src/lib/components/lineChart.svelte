@@ -106,3 +106,9 @@
 </script>
 
 <canvas bind:this={canvas}></canvas>
+
+<style>
+	canvas {
+		max-width: 90%;
+	}
+</style>

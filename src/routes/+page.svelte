@@ -205,7 +205,8 @@
 	.results {
 		display: flex;
 		gap: 1rem;
-		width: 100%;
+		width: 94%;
+
 		max-width: 800px;
 		border-top: 1px solid #fff;
 		margin-top: 1rem;

@@ -328,25 +328,40 @@
 <style>
 	.homePrice {
 		grid-column: 1 / 4;
+		@media (max-width: 768px) {
+			grid-column: 1 / -1;
+		}
 	}
 	.downPaymentSlider {
-		grid-column: 1 / 7;
+		grid-column: 1 / -1;
 	}
 	.downPayment {
 		grid-column: 4 / 7;
+		@media (max-width: 768px) {
+			grid-column: 1 / -1;
+		}
 	}
 
 	.interestRate,
 	.annualTaxes {
 		grid-column: 1 / 3;
+		@media (max-width: 768px) {
+			grid-column: 1 / -1;
+		}
 	}
 	.years,
 	.annualInsurance {
 		grid-column: 3 / 5;
+		@media (max-width: 768px) {
+			grid-column: 1 / -1;
+		}
 	}
 	.extraMonthlyPayment,
 	.loanOriginationDate {
 		grid-column: 5 / 7;
+		@media (max-width: 768px) {
+			grid-column: 1 / -1;
+		}
 	}
 	span {
 		font-weight: 700;

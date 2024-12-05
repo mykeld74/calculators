@@ -1,4 +1,5 @@
 @import 'open-props/postcss/style';
+
 :root {
 	font-family: 'Open Sans', sans-serif;
 	--sliderThumbSize: 1.75rem;
@@ -36,8 +37,11 @@ body {
 main {
 	padding-block-end: 2rem;
 }
+h1 {
+	font-size: clamp(1.8rem, 1rem + 2vw, 2.4rem);
+}
 .container {
-	width: 100vw;
+	width: 100%;
 	max-width: 1200px;
 	margin: 0 auto;
 	display: grid;
@@ -51,7 +55,7 @@ main {
 	display: grid;
 	grid-template-columns: repeat(6, 1fr);
 	gap: 3rem 2rem;
-	padding-inline: 1rem;
+
 	@container (max-width: 650px) {
 		grid-template-columns: 1fr;
 	}
@@ -60,7 +64,6 @@ main {
 	display: flex;
 	flex-direction: column;
 	gap: 0.5rem;
-	width: 100%;
 }
 .left {
 	.tick {
