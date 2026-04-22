@@ -15,6 +15,7 @@
 			interestRate: 10,
 			timesCompounded: 12,
 			retirementAge: 65,
+			lifeExpectancyAge: 90,
 			withdrawalRate: 4,
 			monthlySS: 2948,
 			federalRate: 18,
@@ -163,6 +164,54 @@
 		}
 
 		return null;
+	}
+
+	function calculateSuggestedWithdrawalRate(s) {
+		const { finalBalance, inheritanceBalance, uninvestedInheritance } = projectBalance(s);
+		const totalAtRetirement = finalBalance + inheritanceBalance + uninvestedInheritance;
+		if (totalAtRetirement <= 0) return s.withdrawalRate;
+
+		const targetAge = Math.max(s.lifeExpectancyAge ?? 90, s.retirementAge + 1);
+		const minRate = 0.1;
+		const maxRate = 20;
+
+		const runOutAtMin = calculateRunOutAge(
+			{ ...s, withdrawalRate: minRate },
+			finalBalance,
+			inheritanceBalance,
+			uninvestedInheritance
+		);
+		if (runOutAtMin !== null && runOutAtMin < targetAge) return minRate;
+
+		const runOutAtMax = calculateRunOutAge(
+			{ ...s, withdrawalRate: maxRate },
+			finalBalance,
+			inheritanceBalance,
+			uninvestedInheritance
+		);
+		if (runOutAtMax === null || runOutAtMax > targetAge) return maxRate;
+
+		let low = minRate;
+		let high = maxRate;
+		for (let i = 0; i < 28; i++) {
+			const mid = (low + high) / 2;
+			const runOutAtMid = calculateRunOutAge(
+				{ ...s, withdrawalRate: mid },
+				finalBalance,
+				inheritanceBalance,
+				uninvestedInheritance
+			);
+			if (runOutAtMid === null || runOutAtMid > targetAge) low = mid;
+			else high = mid;
+		}
+
+		return Math.round(high * 10) / 10;
+	}
+
+	function adjustWithdrawalRateToLifeExpectancy(s) {
+		if (!s) return;
+		const suggestedRate = calculateSuggestedWithdrawalRate(s);
+		s.withdrawalRate = Math.max(0.1, Math.min(20, suggestedRate));
 	}
 
 	function projectBalance(s) {
@@ -347,6 +396,9 @@
 		if (age >= activeScenario.retirementAge) {
 			activeScenario.retirementAge = age + 1;
 		}
+		if (activeScenario.lifeExpectancyAge <= activeScenario.retirementAge) {
+			activeScenario.lifeExpectancyAge = activeScenario.retirementAge + 1;
+		}
 	});
 </script>
 
@@ -520,9 +572,33 @@
 								id="withdrawalRate"
 								bind:value={activeScenario.withdrawalRate}
 								min="2"
-								max="10"
+								max="20"
 								step="0.1"
 							/>
+						</div>
+						<div class="field">
+							<div class="field-head">
+								<label for="lifeExpectancyAge">Life Expectancy Age</label>
+								<span class="field-value">{activeScenario.lifeExpectancyAge}</span>
+							</div>
+							<input
+								id="lifeExpectancyAge"
+								type="range"
+								bind:value={activeScenario.lifeExpectancyAge}
+								min={activeScenario.retirementAge + 1}
+								max="120"
+								step="1"
+							/>
+							<div class="field-note">Use this target to tune withdrawal rate</div>
+						</div>
+						<div class="field action-field">
+							<button
+								type="button"
+								class="ghost-btn"
+								onclick={() => adjustWithdrawalRateToLifeExpectancy(activeScenario)}
+							>
+								Match withdrawal rate to life expectancy
+							</button>
 						</div>
 						<div class="field">
 							<label for="monthlySS">Monthly Social Security</label>
@@ -704,6 +780,10 @@
 					<strong>{usd(activeResults.results.monthlyWithdrawal)}</strong>
 				</div>
 				<div class="result">
+					<span>Life Expectancy Target</span>
+					<strong>Age {activeResults.scenario.lifeExpectancyAge}</strong>
+				</div>
+				<div class="result">
 					<span>Money Runs Out</span>
 					<strong>
 						{activeResults.results.runOutAge === null
@@ -846,6 +926,12 @@
 							{/each}
 						</tr>
 						<tr>
+							<th>Life Expectancy Target</th>
+							{#each allResults as { scenario } (scenario.id)}
+								<td>Age {scenario.lifeExpectancyAge}</td>
+							{/each}
+						</tr>
+						<tr>
 							<th>Money Runs Out</th>
 							{#each allResults as { results }, i (allResults[i].scenario.id)}
 								<td>
@@ -970,6 +1056,12 @@
 	}
 	.field input[type='range'] {
 		margin-top: 0.25rem;
+	}
+	.action-field {
+		justify-content: flex-end;
+	}
+	.action-field .ghost-btn {
+		align-self: flex-start;
 	}
 	.checkbox-field label {
 		display: flex;
