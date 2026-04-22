@@ -113,6 +113,58 @@
 		return s.employerMatch ?? 0;
 	}
 
+	function calculateRunOutAge(
+		s,
+		retirementBalanceStart,
+		inheritanceBalanceStart,
+		uninvestedCashStart
+	) {
+		if (s.withdrawalRate <= 0) return null;
+
+		const monthlyWithdrawal =
+			((retirementBalanceStart + inheritanceBalanceStart + uninvestedCashStart) *
+				(s.withdrawalRate / 100)) /
+			12;
+		if (monthlyWithdrawal <= 0) return null;
+
+		let retirementBalance = retirementBalanceStart;
+		let inheritanceBalance = inheritanceBalanceStart;
+		let uninvestedCash = uninvestedCashStart;
+
+		const retirementRate = s.interestRate / 100;
+		const inheritanceRate = (s.inheritanceReturnRate ?? 0) / 100;
+		const retirementCompoundEvery = 12 / s.timesCompounded;
+		const inheritanceCompoundEvery = 12 / s.timesCompounded;
+		const maxMonths = Math.max((120 - s.retirementAge) * 12, 0);
+
+		for (let i = 1; i <= maxMonths; i++) {
+			if (retirementBalance > 0 && i % retirementCompoundEvery === 0) {
+				retirementBalance = retirementBalance * (1 + retirementRate / s.timesCompounded);
+			}
+			if (inheritanceBalance > 0 && i % inheritanceCompoundEvery === 0) {
+				inheritanceBalance = inheritanceBalance * (1 + inheritanceRate / s.timesCompounded);
+			}
+
+			const totalBeforeWithdrawal = retirementBalance + inheritanceBalance + uninvestedCash;
+			if (totalBeforeWithdrawal <= 0) return s.retirementAge + (i - 1) / 12;
+
+			const withdrawal = Math.min(monthlyWithdrawal, totalBeforeWithdrawal);
+			const retirementShare = retirementBalance / totalBeforeWithdrawal;
+			const inheritanceShare = inheritanceBalance / totalBeforeWithdrawal;
+			const cashShare = uninvestedCash / totalBeforeWithdrawal;
+
+			retirementBalance = Math.max(retirementBalance - withdrawal * retirementShare, 0);
+			inheritanceBalance = Math.max(inheritanceBalance - withdrawal * inheritanceShare, 0);
+			uninvestedCash = Math.max(uninvestedCash - withdrawal * cashShare, 0);
+
+			if (retirementBalance + inheritanceBalance + uninvestedCash <= 0) {
+				return s.retirementAge + i / 12;
+			}
+		}
+
+		return null;
+	}
+
 	function projectBalance(s) {
 		const age = currentAge(s);
 		const years = Math.max(s.retirementAge - age, 0);
@@ -159,11 +211,7 @@
 			}
 			retirementBalance += monthlyContribution;
 
-			if (
-				hasInheritance &&
-				inheritanceMonthFromNow > 0 &&
-				i === inheritanceMonthFromNow
-			) {
+			if (hasInheritance && inheritanceMonthFromNow > 0 && i === inheritanceMonthFromNow) {
 				if (s.inheritanceInvested) inheritanceBalance += s.inheritanceAmount;
 				else uninvestedInheritance += s.inheritanceAmount;
 			}
@@ -210,6 +258,12 @@
 		} = projectBalance(s);
 		const totalNestEgg = finalBalance + inheritanceBalance + uninvestedInheritance;
 		const monthlyWithdrawal = (totalNestEgg * (s.withdrawalRate / 100)) / 12;
+		const runOutAge = calculateRunOutAge(
+			s,
+			finalBalance,
+			inheritanceBalance,
+			uninvestedInheritance
+		);
 		const gross = monthlyWithdrawal + s.monthlySS;
 		const federal = gross * (s.federalRate / 100);
 		const stateTax = gross * (s.stateRate / 100);
@@ -226,6 +280,7 @@
 			uninvestedInheritance,
 			totalNestEgg,
 			monthlyWithdrawal,
+			runOutAge,
 			gross,
 			federal,
 			stateTax,
@@ -628,7 +683,9 @@
 				</div>
 				{#if activeResults.results.inheritanceBalance > 0}
 					<div class="result">
-						<span>+ Index Account (inheritance @ {activeResults.scenario.inheritanceReturnRate}%)</span>
+						<span
+							>+ Index Account (inheritance @ {activeResults.scenario.inheritanceReturnRate}%)</span
+						>
 						<strong>{usd(activeResults.results.inheritanceBalance)}</strong>
 					</div>
 				{/if}
@@ -645,6 +702,14 @@
 				<div class="result">
 					<span>Monthly Withdrawal ({activeResults.scenario.withdrawalRate}%)</span>
 					<strong>{usd(activeResults.results.monthlyWithdrawal)}</strong>
+				</div>
+				<div class="result">
+					<span>Money Runs Out</span>
+					<strong>
+						{activeResults.results.runOutAge === null
+							? 'Never (through age 120)'
+							: `Age ${activeResults.results.runOutAge.toFixed(1)}`}
+					</strong>
 				</div>
 				<div class="result">
 					<span>Monthly Social Security</span>
@@ -778,6 +843,16 @@
 							<th>Monthly Withdrawal</th>
 							{#each allResults as { results }, i (allResults[i].scenario.id)}
 								<td>{usd(results.monthlyWithdrawal)}</td>
+							{/each}
+						</tr>
+						<tr>
+							<th>Money Runs Out</th>
+							{#each allResults as { results }, i (allResults[i].scenario.id)}
+								<td>
+									{results.runOutAge === null
+										? 'Never (120+)'
+										: `Age ${results.runOutAge.toFixed(1)}`}
+								</td>
 							{/each}
 						</tr>
 						<tr>
