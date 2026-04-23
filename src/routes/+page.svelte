@@ -1219,6 +1219,16 @@
 		border-bottom: 1px solid var(--borderColorSoft);
 		white-space: nowrap;
 	}
+	.compare th:first-child {
+		position: sticky;
+		left: 0;
+		z-index: 2;
+		background: var(--mainBackgroundColor);
+		box-shadow: 10px 0 12px -12px rgba(0, 0, 0, 0.45);
+	}
+	.compare thead th:first-child {
+		z-index: 3;
+	}
 	.compare thead th {
 		font-weight: 600;
 		border-bottom: 1px solid var(--borderColor);
