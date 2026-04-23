@@ -29,6 +29,7 @@ function monthIndexFromStartDate(startDate, now) {
 }
 
 function normalizeFutureChanges(changes, now) {
+	const recurringFrequencyValues = [1, 3, 6, 12];
 	if (!Array.isArray(changes)) return [];
 	return changes
 		.map((change) => {
@@ -59,8 +60,10 @@ function normalizeFutureChanges(changes, now) {
 				recurringPercent: Number.isFinite(recurringPercent)
 					? Math.min(Math.max(recurringPercent, -100), 100)
 					: 0,
-				recurringFrequencyMonths: Number.isFinite(recurringFrequencyMonths)
-					? Math.max(Math.round(recurringFrequencyMonths), 1)
+				recurringFrequencyMonths: recurringFrequencyValues.includes(
+					Math.round(recurringFrequencyMonths)
+				)
+					? Math.round(recurringFrequencyMonths)
 					: 12,
 				recurringDurationMonths: Number.isFinite(recurringEndAfterYears)
 					? Math.max(Math.round(recurringEndAfterYears * 12), 0)
@@ -69,6 +72,11 @@ function normalizeFutureChanges(changes, now) {
 		})
 		.filter((change) => Number.isFinite(change.monthIndex))
 		.sort((a, b) => a.monthIndex - b.monthIndex);
+}
+
+function normalizeTimesCompounded(timesCompounded) {
+	const parsed = Math.round(Number(timesCompounded));
+	return [1, 4, 12].includes(parsed) ? parsed : 12;
 }
 
 export function projectBalance(s, now = new Date()) {
@@ -113,14 +121,17 @@ export function projectBalance(s, now = new Date()) {
 		futureChangeIndex < futureChanges.length &&
 		futureChanges[futureChangeIndex].monthIndex <= 0
 	) {
-		applyFutureChange(futureChanges[futureChangeIndex]);
+		const change = futureChanges[futureChangeIndex];
+		if (change.recurringEnabled) applyRecurringFutureChange(change);
+		else applyFutureChange(change);
 		futureChangeIndex++;
 	}
 	const baseMonthly = computeMonthlyContributions();
 
-	const retirementRate = s.interestRate / 100;
-	const compoundEvery = 12 / s.timesCompounded;
-	const inheritanceRate = (s.inheritanceReturnRate ?? 0) / 100;
+	const timesCompounded = normalizeTimesCompounded(s.timesCompounded);
+	const retirementRate = Number(s.interestRate) / 100;
+	const compoundEvery = 12 / timesCompounded;
+	const inheritanceRate = (Number(s.inheritanceReturnRate) || 0) / 100;
 
 	const inheritanceMonthFromNow = (s.inheritanceAge - age) * 12;
 	const hasInheritance = s.inheritanceAmount > 0;
@@ -168,17 +179,17 @@ export function projectBalance(s, now = new Date()) {
 		const { monthlyContribution } = computeMonthlyContributions();
 
 		if (i % compoundEvery === 0) {
-			retirementBalance *= 1 + retirementRate / s.timesCompounded;
+			retirementBalance *= 1 + retirementRate / timesCompounded;
 		}
 		retirementBalance += monthlyContribution;
+
+		if (inheritanceBalance > 0 && i % compoundEvery === 0) {
+			inheritanceBalance *= 1 + inheritanceRate / timesCompounded;
+		}
 
 		if (hasInheritance && inheritanceMonthFromNow > 0 && i === inheritanceMonthFromNow) {
 			if (s.inheritanceInvested) inheritanceBalance += s.inheritanceAmount;
 			else uninvestedInheritance += s.inheritanceAmount;
-		}
-
-		if (inheritanceBalance > 0 && i % compoundEvery === 0) {
-			inheritanceBalance *= 1 + inheritanceRate / s.timesCompounded;
 		}
 
 		month++;
@@ -223,17 +234,18 @@ export function calculateRunOutAge(
 	let inheritanceBalance = inheritanceBalanceStart;
 	let uninvestedCash = uninvestedCashStart;
 
-	const retirementRate = s.interestRate / 100;
-	const inheritanceRate = (s.inheritanceReturnRate ?? 0) / 100;
-	const compoundEvery = 12 / s.timesCompounded;
+	const timesCompounded = normalizeTimesCompounded(s.timesCompounded);
+	const retirementRate = Number(s.interestRate) / 100;
+	const inheritanceRate = (Number(s.inheritanceReturnRate) || 0) / 100;
+	const compoundEvery = 12 / timesCompounded;
 	const maxMonths = Math.max((120 - s.retirementAge) * 12, 0);
 
 	for (let i = 1; i <= maxMonths; i++) {
 		if (retirementBalance > 0 && i % compoundEvery === 0) {
-			retirementBalance *= 1 + retirementRate / s.timesCompounded;
+			retirementBalance *= 1 + retirementRate / timesCompounded;
 		}
 		if (inheritanceBalance > 0 && i % compoundEvery === 0) {
-			inheritanceBalance *= 1 + inheritanceRate / s.timesCompounded;
+			inheritanceBalance *= 1 + inheritanceRate / timesCompounded;
 		}
 
 		const totalBeforeWithdrawal = retirementBalance + inheritanceBalance + uninvestedCash;
@@ -270,9 +282,10 @@ export function projectDrawdownSeries(
 	const age = currentAge(s, now);
 	const monthsToRetirement = Math.max((s.retirementAge - age) * 12, 0);
 	const maxMonths = Math.max((120 - s.retirementAge) * 12, 0);
-	const retirementRate = s.interestRate / 100;
-	const inheritanceRate = (s.inheritanceReturnRate ?? 0) / 100;
-	const compoundEvery = 12 / s.timesCompounded;
+	const timesCompounded = normalizeTimesCompounded(s.timesCompounded);
+	const retirementRate = Number(s.interestRate) / 100;
+	const inheritanceRate = (Number(s.inheritanceReturnRate) || 0) / 100;
+	const compoundEvery = 12 / timesCompounded;
 
 	let retirementBalance = retirementBalanceStart;
 	let inheritanceBalance = inheritanceBalanceStart;
@@ -290,10 +303,10 @@ export function projectDrawdownSeries(
 
 	for (let i = 1; i <= maxMonths; i++) {
 		if (retirementBalance > 0 && i % compoundEvery === 0) {
-			retirementBalance *= 1 + retirementRate / s.timesCompounded;
+			retirementBalance *= 1 + retirementRate / timesCompounded;
 		}
 		if (inheritanceBalance > 0 && i % compoundEvery === 0) {
-			inheritanceBalance *= 1 + inheritanceRate / s.timesCompounded;
+			inheritanceBalance *= 1 + inheritanceRate / timesCompounded;
 		}
 
 		const totalBeforeWithdrawal = retirementBalance + inheritanceBalance + uninvestedCash;
@@ -359,7 +372,7 @@ export function calculateSuggestedWithdrawalRate(s, now = new Date()) {
 		else high = mid;
 	}
 
-	return Math.round(high * 10) / 10;
+	return Math.round(low * 10) / 10;
 }
 
 export function computeResults(s, now = new Date()) {

@@ -110,12 +110,16 @@
 	}
 
 	const updateDownPaymentPercentage = () => {
+		if (principal <= 0) {
+			downPaymentPercentage = 0;
+			return;
+		}
 		downPaymentPercentage = (downPayment / principal) * 100;
-		downPaymentPercentage = Math.round(downPaymentPercentage * 100) / 100;
+		downPaymentPercentage = Math.min(100, Math.max(0, Math.round(downPaymentPercentage * 100) / 100));
 	};
 	const updateDownPayment = () => {
 		downPayment = principal * (downPaymentPercentage / 100);
-		downPayment = Math.round(downPayment * 100) / 100;
+		downPayment = Math.min(principal, Math.max(0, Math.round(downPayment * 100) / 100));
 	};
 	function monthKey(date) {
 		return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -225,10 +229,10 @@
 				oneTimePaymentByMonth.set(key, (oneTimePaymentByMonth.get(key) ?? 0) + amount);
 				continue;
 			}
-			const frequencyMonths = Math.max(
-				1,
-				Math.round(Number(payment?.recurringFrequencyMonths) || 1)
-			);
+			const parsedFrequencyMonths = Math.round(Number(payment?.recurringFrequencyMonths));
+			const frequencyMonths = recurringFrequencyValues.includes(parsedFrequencyMonths)
+				? parsedFrequencyMonths
+				: 12;
 			const rawRecurringEndDate = String(payment?.recurringEndDate ?? '').trim();
 			const parsedRecurringEndDate = new Date(rawRecurringEndDate);
 			// Blank/invalid end date means repeat until the loan is paid off
