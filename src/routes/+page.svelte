@@ -17,6 +17,12 @@
 		highTaxState: { label: 'High-tax state', federalRate: 16, stateRate: 8, medicareRate: 1.45 }
 	};
 
+	const FUTURE_CHANGE_TYPE_OPTIONS = [
+		{ value: 'both', label: 'Salary + Contribution' },
+		{ value: 'salary', label: 'Salary only' },
+		{ value: 'contribution', label: 'Contribution only' }
+	];
+
 	function makeDefaults(overrides = {}) {
 		return {
 			currentBalance: 115000,
@@ -38,6 +44,7 @@
 			inheritanceAge: 65,
 			inheritanceInvested: true,
 			inheritanceReturnRate: 8,
+			futureChanges: [],
 			...overrides
 		};
 	}
@@ -48,7 +55,44 @@
 	]);
 	let activeScenarioId = $state(1);
 	let nextId = 3;
+	let nextFutureChangeId = 1;
 	let hydrated = $state(false);
+
+	function normalizeFutureChange(change, fallbackId) {
+		const yearsFromNow = Number(change?.yearsFromNow);
+		const annualSalary = Number(change?.annualSalary);
+		const contributionPercent = Number(change?.contributionPercent);
+		const changeType =
+			change?.changeType === 'salary' ||
+			change?.changeType === 'contribution' ||
+			change?.changeType === 'both'
+				? change.changeType
+				: 'both';
+
+		return {
+			id: Number.isInteger(change?.id) ? change.id : fallbackId,
+			yearsFromNow: Number.isFinite(yearsFromNow) ? Math.max(0, Math.round(yearsFromNow)) : 1,
+			changeType,
+			annualSalary: Number.isFinite(annualSalary) ? Math.max(0, annualSalary) : 0,
+			contributionPercent: Number.isFinite(contributionPercent)
+				? Math.min(Math.max(contributionPercent, 0), 50)
+				: 0
+		};
+	}
+
+	function cloneFutureChanges(changes) {
+		if (!Array.isArray(changes)) return [];
+		return changes.map((change) => ({ ...change }));
+	}
+
+	function cloneScenario(source, id, label) {
+		return {
+			...source,
+			id,
+			label,
+			futureChanges: cloneFutureChanges(source.futureChanges)
+		};
+	}
 
 	function migrateScenario(s) {
 		const merged = { ...makeDefaults(), ...s };
@@ -56,6 +100,9 @@
 			const year = new Date().getFullYear() - s.currentAge;
 			merged.birthdate = `${year}-01-01`;
 		}
+		merged.futureChanges = Array.isArray(s.futureChanges)
+			? s.futureChanges.map((change, idx) => normalizeFutureChange(change, idx + 1))
+			: [];
 		delete merged.currentAge;
 		return merged;
 	}
@@ -69,6 +116,13 @@
 					scenarios = parsed.scenarios.map(migrateScenario);
 					activeScenarioId = parsed.activeScenarioId ?? scenarios[0].id;
 					nextId = Math.max(...scenarios.map((s) => s.id)) + 1;
+					const maxFutureChangeId = Math.max(
+						0,
+						...scenarios.flatMap((scenario) =>
+							(scenario.futureChanges ?? []).map((change) => change.id ?? 0)
+						)
+					);
+					nextFutureChangeId = maxFutureChangeId + 1;
 				}
 			}
 		} catch {}
@@ -202,6 +256,29 @@
 		scenario.contributionPercent = Math.max(0, Math.min(50, Math.round(nextPercent * 10) / 10));
 	}
 
+	function addFutureChange(scenario) {
+		if (!scenario) return;
+		if (!Array.isArray(scenario.futureChanges)) scenario.futureChanges = [];
+		scenario.futureChanges.push({
+			id: nextFutureChangeId++,
+			yearsFromNow: 1,
+			changeType: 'both',
+			annualSalary: scenario.annualSalary,
+			contributionPercent: scenario.contributionPercent
+		});
+	}
+
+	function removeFutureChange(scenario, changeId) {
+		if (!scenario || !Array.isArray(scenario.futureChanges)) return;
+		const index = scenario.futureChanges.findIndex((change) => change.id === changeId);
+		if (index >= 0) scenario.futureChanges.splice(index, 1);
+	}
+
+	function updateFutureChangeCurrency(change, key, value) {
+		if (!change) return;
+		change[key] = parseUsdInput(value);
+	}
+
 	function adjustWithdrawalRateToLifeExpectancy(s) {
 		if (!s) return;
 		const suggestedRate = calculateSuggestedWithdrawalRate(s);
@@ -270,28 +347,31 @@
 				dash: [3, 3]
 			});
 		}
+		for (const change of activeScenario.futureChanges ?? []) {
+			const monthsFromNow = Math.max(Math.round((change.yearsFromNow ?? 0) * 12), 0);
+			if (monthsFromNow <= 0) continue;
+			const changeDate = new Date(now.getFullYear(), now.getMonth() + monthsFromNow, 1).getTime();
+			markers.push({
+				x: changeDate,
+				label: `Change (${change.yearsFromNow}y)`,
+				color: 'rgba(160,200,255,0.7)',
+				dash: [2, 3]
+			});
+		}
 		return markers;
 	});
 
 	function addScenario() {
 		const base = activeScenario ?? scenarios[0];
 		const id = nextId++;
-		scenarios.push({
-			...base,
-			id,
-			label: `Scenario ${id}`
-		});
+		scenarios.push(cloneScenario(base, id, `Scenario ${id}`));
 		activeScenarioId = id;
 	}
 
 	function duplicateScenario() {
 		if (!activeScenario) return;
 		const id = nextId++;
-		scenarios.push({
-			...activeScenario,
-			id,
-			label: `${activeScenario.label} (copy)`
-		});
+		scenarios.push(cloneScenario(activeScenario, id, `${activeScenario.label} (copy)`));
 		activeScenarioId = id;
 	}
 
@@ -308,6 +388,7 @@
 		scenarios = [{ id: 1, label: 'Retire at 65', ...makeDefaults() }];
 		activeScenarioId = 1;
 		nextId = 2;
+		nextFutureChangeId = 1;
 	}
 
 	$effect(() => {
@@ -486,6 +567,84 @@
 							</select>
 						</div>
 					</div>
+				</fieldset>
+
+				<fieldset class="group">
+					<legend>Planned Changes</legend>
+					<div class="future-changes-header">
+						<div class="field-note">
+							Schedule salary and/or contribution updates after a number of years.
+						</div>
+						<button type="button" class="ghost-btn" onclick={() => addFutureChange(activeScenario)}>
+							+ Add change
+						</button>
+					</div>
+					{#if (activeScenario.futureChanges ?? []).length === 0}
+						<div class="field-note">No changes scheduled.</div>
+					{:else}
+						<div class="future-changes-list">
+							{#each activeScenario.futureChanges as change (change.id)}
+								<div class="future-change-row">
+									<div class="field">
+										<label for={`change-years-${change.id}`}>After Years</label>
+										<input
+											type="number"
+											id={`change-years-${change.id}`}
+											bind:value={change.yearsFromNow}
+											min="0"
+											max="60"
+											step="1"
+										/>
+									</div>
+									<div class="field">
+										<label for={`change-type-${change.id}`}>Change Type</label>
+										<select id={`change-type-${change.id}`} bind:value={change.changeType}>
+											{#each FUTURE_CHANGE_TYPE_OPTIONS as option}
+												<option value={option.value}>{option.label}</option>
+											{/each}
+										</select>
+									</div>
+									{#if change.changeType === 'salary' || change.changeType === 'both'}
+										<div class="field">
+											<label for={`change-salary-${change.id}`}>Annual Salary</label>
+											<input
+												type="text"
+												id={`change-salary-${change.id}`}
+												inputmode="numeric"
+												value={formatUsdInput(change.annualSalary)}
+												oninput={(e) =>
+													updateFutureChangeCurrency(change, 'annualSalary', e.currentTarget.value)}
+											/>
+										</div>
+									{/if}
+									{#if change.changeType === 'contribution' || change.changeType === 'both'}
+										<div class="field">
+											<div class="field-head">
+												<label for={`change-contribution-${change.id}`}>Contribution</label>
+												<span class="field-value">{change.contributionPercent}%</span>
+											</div>
+											<NumberOrRange
+												id={`change-contribution-${change.id}`}
+												bind:value={change.contributionPercent}
+												min="0"
+												max="50"
+												step="0.5"
+											/>
+										</div>
+									{/if}
+									<div class="field action-field">
+										<button
+											type="button"
+											class="remove-btn"
+											onclick={() => removeFutureChange(activeScenario, change.id)}
+										>
+											Remove
+										</button>
+									</div>
+								</div>
+							{/each}
+						</div>
+					{/if}
 				</fieldset>
 
 				<fieldset class="group">
@@ -1027,6 +1186,30 @@
 	.field-note {
 		font-size: 0.85rem;
 		opacity: 0.6;
+	}
+	.future-changes-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		margin-bottom: 0.75rem;
+		flex-wrap: wrap;
+	}
+	.future-changes-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+	.future-change-row {
+		display: grid;
+		grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+		gap: 0.85rem;
+		padding: 0.75rem;
+		border: 1px solid var(--borderColorSoft);
+		border-radius: 8px;
+		@container (max-width: 800px) {
+			grid-template-columns: 1fr;
+		}
 	}
 	.action-field {
 		justify-content: flex-end;

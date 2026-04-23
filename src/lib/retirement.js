@@ -17,15 +17,75 @@ export function currentAge(scenario, now = new Date()) {
 	return age;
 }
 
+function normalizeFutureChanges(changes) {
+	if (!Array.isArray(changes)) return [];
+	return changes
+		.map((change) => {
+			const yearsFromNow = Number(change?.yearsFromNow);
+			const annualSalary = Number(change?.annualSalary);
+			const contributionPercent = Number(change?.contributionPercent);
+			const changeType =
+				change?.changeType === 'salary' ||
+				change?.changeType === 'contribution' ||
+				change?.changeType === 'both'
+					? change.changeType
+					: 'both';
+
+			return {
+				monthIndex: Math.max(Math.round(yearsFromNow * 12), 0),
+				changeType,
+				annualSalary: Number.isFinite(annualSalary) ? Math.max(annualSalary, 0) : null,
+				contributionPercent: Number.isFinite(contributionPercent)
+					? Math.min(Math.max(contributionPercent, 0), 50)
+					: null
+			};
+		})
+		.filter((change) => Number.isFinite(change.monthIndex))
+		.sort((a, b) => a.monthIndex - b.monthIndex);
+}
+
 export function projectBalance(s, now = new Date()) {
 	const age = currentAge(s, now);
 	const years = Math.max(s.retirementAge - age, 0);
 	const totalMonths = years * 12;
 	const employerPct = s.employerMatch ?? 0;
-	const totalContribPercent = s.contributionPercent + employerPct;
-	const monthlyContribution = (s.annualSalary * (totalContribPercent / 100)) / 12;
-	const monthlyEmployeeContribution = (s.annualSalary * (s.contributionPercent / 100)) / 12;
-	const monthlyEmployerContribution = (s.annualSalary * (employerPct / 100)) / 12;
+	let annualSalary = s.annualSalary;
+	let contributionPercent = s.contributionPercent;
+	const futureChanges = normalizeFutureChanges(s.futureChanges);
+	let futureChangeIndex = 0;
+
+	const computeMonthlyContributions = () => {
+		const totalContribPercent = contributionPercent + employerPct;
+		return {
+			monthlyContribution: (annualSalary * (totalContribPercent / 100)) / 12,
+			monthlyEmployeeContribution: (annualSalary * (contributionPercent / 100)) / 12,
+			monthlyEmployerContribution: (annualSalary * (employerPct / 100)) / 12
+		};
+	};
+
+	const applyFutureChange = (change) => {
+		if (
+			(change.changeType === 'salary' || change.changeType === 'both') &&
+			change.annualSalary !== null
+		) {
+			annualSalary = change.annualSalary;
+		}
+		if (
+			(change.changeType === 'contribution' || change.changeType === 'both') &&
+			change.contributionPercent !== null
+		) {
+			contributionPercent = change.contributionPercent;
+		}
+	};
+
+	while (
+		futureChangeIndex < futureChanges.length &&
+		futureChanges[futureChangeIndex].monthIndex <= 0
+	) {
+		applyFutureChange(futureChanges[futureChangeIndex]);
+		futureChangeIndex++;
+	}
+	const baseMonthly = computeMonthlyContributions();
 
 	const retirementRate = s.interestRate / 100;
 	const compoundEvery = 12 / s.timesCompounded;
@@ -55,6 +115,16 @@ export function projectBalance(s, now = new Date()) {
 	];
 
 	for (let i = 1; i <= totalMonths; i++) {
+		while (
+			futureChangeIndex < futureChanges.length &&
+			futureChanges[futureChangeIndex].monthIndex === i - 1
+		) {
+			applyFutureChange(futureChanges[futureChangeIndex]);
+			futureChangeIndex++;
+		}
+
+		const { monthlyContribution } = computeMonthlyContributions();
+
 		if (i % compoundEvery === 0) {
 			retirementBalance *= 1 + retirementRate / s.timesCompounded;
 		}
@@ -86,9 +156,9 @@ export function projectBalance(s, now = new Date()) {
 		uninvestedInheritance,
 		series,
 		years,
-		monthlyContribution,
-		monthlyEmployeeContribution,
-		monthlyEmployerContribution,
+		monthlyContribution: baseMonthly.monthlyContribution,
+		monthlyEmployeeContribution: baseMonthly.monthlyEmployeeContribution,
+		monthlyEmployerContribution: baseMonthly.monthlyEmployerContribution,
 		employerPct
 	};
 }
