@@ -5,6 +5,17 @@
 
 	const STORAGE_KEY = 'retirement-scenarios-v2';
 	const PALETTE = ['#4bc0c0', '#ff9f40', '#9966ff', '#ff6384', '#36a2eb', '#ffce56', '#8ed081'];
+	const TAX_PRESETS = {
+		custom: { label: 'Custom' },
+		retiredModerate: {
+			label: 'Retired (moderate)',
+			federalRate: 12,
+			stateRate: 4,
+			medicareRate: 1.45
+		},
+		noStateTax: { label: 'No state tax', federalRate: 12, stateRate: 0, medicareRate: 1.45 },
+		highTaxState: { label: 'High-tax state', federalRate: 16, stateRate: 8, medicareRate: 1.45 }
+	};
 
 	function makeDefaults(overrides = {}) {
 		return {
@@ -18,6 +29,7 @@
 			retirementAge: 65,
 			lifeExpectancyAge: 90,
 			withdrawalRate: 4,
+			taxPreset: 'retiredModerate',
 			monthlySS: 2948,
 			federalRate: 18,
 			stateRate: 4.4,
@@ -79,6 +91,19 @@
 			currency: 'USD',
 			maximumFractionDigits: 0
 		});
+	}
+
+	function applyTaxPreset(scenario, presetKey) {
+		if (!scenario || !TAX_PRESETS[presetKey] || presetKey === 'custom') return;
+		const preset = TAX_PRESETS[presetKey];
+		scenario.federalRate = preset.federalRate;
+		scenario.stateRate = preset.stateRate;
+		scenario.medicareRate = preset.medicareRate;
+	}
+
+	function runOutDelta(result, scenario) {
+		if (result.runOutAge === null) return null;
+		return result.runOutAge - scenario.lifeExpectancyAge;
 	}
 
 	function formatUsdInput(n) {
@@ -188,14 +213,63 @@
 		allResults.find((r) => r.scenario.id === activeScenarioId) ?? allResults[0]
 	);
 
-	let chartDatasets = $derived(
-		allResults.map((r, idx) => ({
-			label: r.scenario.label,
-			data: r.results.series,
-			color: PALETTE[idx % PALETTE.length],
-			fill: r.scenario.id === activeScenarioId
-		}))
+	let activeRunOutDelta = $derived(
+		activeResults ? runOutDelta(activeResults.results, activeResults.scenario) : null
 	);
+
+	let chartDatasets = $derived(
+		allResults.flatMap((r, idx) => {
+			const color = PALETTE[idx % PALETTE.length];
+			const accumulation = {
+				label: r.scenario.label,
+				data: r.results.series,
+				color,
+				fill: r.scenario.id === activeScenarioId
+			};
+			const drawdown =
+				r.results.drawdownSeries?.length > 1
+					? {
+							label: `${r.scenario.label} (retired drawdown)`,
+							data: r.results.drawdownSeries,
+							color,
+							fill: false,
+							borderDash: [6, 4]
+						}
+					: null;
+			return drawdown ? [accumulation, drawdown] : [accumulation];
+		})
+	);
+
+	let chartMarkers = $derived.by(() => {
+		if (!activeScenario || !activeResults) return [];
+		const now = new Date();
+		const retirementMonths = Math.max(
+			(activeScenario.retirementAge - currentAge(activeScenario)) * 12,
+			0
+		);
+		const retirementDate = new Date(
+			now.getFullYear(),
+			now.getMonth() + retirementMonths,
+			1
+		).getTime();
+		const markers = [
+			{ x: retirementDate, label: 'Retirement', color: 'rgba(255,255,255,0.45)', dash: [6, 4] }
+		];
+		if (activeResults.results.runOutAge !== null) {
+			const runOutMonths = Math.max(
+				(activeResults.results.runOutAge - currentAge(activeScenario)) * 12,
+				0
+			);
+			const runOutDate = new Date(now.getFullYear(), now.getMonth() + runOutMonths, 1).getTime();
+			markers.push({
+				x: runOutDate,
+				label: 'Runs out',
+				color: 'rgba(255,120,120,0.7)',
+				dash: [3, 3]
+			});
+		}
+		return markers;
+	});
 
 	function addScenario() {
 		const base = activeScenario ?? scenarios[0];
@@ -485,6 +559,18 @@
 					<legend>Taxes</legend>
 					<div class="group-grid">
 						<div class="field">
+							<label for="taxPreset">Tax Preset</label>
+							<select
+								id="taxPreset"
+								bind:value={activeScenario.taxPreset}
+								onchange={(e) => applyTaxPreset(activeScenario, e.currentTarget.value)}
+							>
+								{#each Object.entries(TAX_PRESETS) as [key, preset]}
+									<option value={key}>{preset.label}</option>
+								{/each}
+							</select>
+						</div>
+						<div class="field">
 							<div class="field-head">
 								<label for="federalRate">Federal</label>
 								<span class="field-value">{activeScenario.federalRate}%</span>
@@ -599,6 +685,31 @@
 	{#if activeResults}
 		<section class="panel results-panel">
 			<h2>{activeResults.scenario.label} — Results</h2>
+			<div class="hero-summary">
+				<div class="hero-main">
+					<span>Take-Home Monthly</span>
+					<strong>{usd(activeResults.results.takeHome)}</strong>
+				</div>
+				<div
+					class="hero-runout"
+					class:good={activeRunOutDelta === null || activeRunOutDelta >= 0}
+					class:risk={activeRunOutDelta !== null && activeRunOutDelta < 0}
+				>
+					<span>Money Runs Out</span>
+					<strong>
+						{activeResults.results.runOutAge === null
+							? 'Never (through age 120)'
+							: `Age ${activeResults.results.runOutAge.toFixed(1)}`}
+					</strong>
+					{#if activeRunOutDelta !== null}
+						<small>
+							{activeRunOutDelta >= 0
+								? `${activeRunOutDelta.toFixed(1)} years past target`
+								: `${Math.abs(activeRunOutDelta).toFixed(1)} years short of target`}
+						</small>
+					{/if}
+				</div>
+			</div>
 			<div class="results-grid">
 				<div class="result">
 					<span>Years Invested</span><strong>{activeResults.results.years}</strong>
@@ -638,20 +749,16 @@
 					<strong>{usd(activeResults.results.totalNestEgg)}</strong>
 				</div>
 				<div class="result">
-					<span>Monthly Withdrawal ({activeResults.scenario.withdrawalRate}%)</span>
-					<strong>{usd(activeResults.results.monthlyWithdrawal)}</strong>
+					<span
+						>Monthly Withdrawal ({activeResults.results.effectiveWithdrawalRate.toFixed(1)}%)</span
+					>
+					<strong>
+						{usd(activeResults.results.monthlyWithdrawal)}
+					</strong>
 				</div>
 				<div class="result">
 					<span>Life Expectancy Target</span>
 					<strong>Age {activeResults.scenario.lifeExpectancyAge}</strong>
-				</div>
-				<div class="result">
-					<span>Money Runs Out</span>
-					<strong>
-						{activeResults.results.runOutAge === null
-							? 'Never (through age 120)'
-							: `Age ${activeResults.results.runOutAge.toFixed(1)}`}
-					</strong>
 				</div>
 				<div class="result">
 					<span>Monthly Social Security</span>
@@ -672,10 +779,6 @@
 				<div class="result deduction">
 					<span>− Medicare ({activeResults.scenario.medicareRate}%)</span>
 					<strong>{usd(activeResults.results.medicare)}</strong>
-				</div>
-				<div class="result highlight big">
-					<span>Take-Home Monthly</span>
-					<strong>{usd(activeResults.results.takeHome)}</strong>
 				</div>
 				<div class="result">
 					<span>Take-Home Annual</span>
@@ -784,7 +887,10 @@
 						<tr>
 							<th>Monthly Withdrawal</th>
 							{#each allResults as { results }, i (allResults[i].scenario.id)}
-								<td>{usd(results.monthlyWithdrawal)}</td>
+								<td>
+									{usd(results.monthlyWithdrawal)}
+									({results.effectiveWithdrawalRate.toFixed(1)}%)
+								</td>
 							{/each}
 						</tr>
 						<tr>
@@ -835,7 +941,7 @@
 
 	<section class="panel chart-panel">
 		<h2>Balance Over Time</h2>
-		<LineChart datasets={chartDatasets} />
+		<LineChart datasets={chartDatasets} markers={chartMarkers} />
 	</section>
 </div>
 
@@ -1027,6 +1133,41 @@
 	.results-panel {
 		background: rgba(255, 255, 255, 0.03);
 	}
+	.hero-summary {
+		display: grid;
+		grid-template-columns: 1.6fr 1fr;
+		gap: 0.9rem;
+		margin-bottom: 1rem;
+		@container (max-width: 650px) {
+			grid-template-columns: 1fr;
+		}
+	}
+	.hero-main,
+	.hero-runout {
+		border: 1px solid var(--borderColorSoft);
+		border-radius: 8px;
+		padding: 0.85rem 1rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+	.hero-main strong,
+	.hero-runout strong {
+		font-size: 1.5rem;
+		font-family: 'Roboto Slab', serif;
+	}
+	.hero-runout small {
+		opacity: 0.75;
+		font-size: 0.85rem;
+	}
+	.hero-runout.good {
+		background: rgba(120, 220, 160, 0.08);
+		border-color: rgba(120, 220, 160, 0.35);
+	}
+	.hero-runout.risk {
+		background: rgba(255, 120, 120, 0.08);
+		border-color: rgba(255, 120, 120, 0.35);
+	}
 	.results-grid {
 		display: grid;
 		grid-template-columns: repeat(2, 1fr);
@@ -1048,15 +1189,14 @@
 	.result strong {
 		font-family: 'Roboto Slab', serif;
 		font-size: 1.1rem;
+		text-align: right;
+		min-width: 9.5rem;
 	}
 	.result.highlight {
 		background: var(--accentSurface);
 		padding: 0.6rem 0.75rem;
 		border-radius: 5px;
 		border: none;
-	}
-	.result.highlight.big strong {
-		font-size: 1.5rem;
 	}
 	.result.deduction strong {
 		color: rgba(255, 160, 160, 0.9);
@@ -1090,6 +1230,7 @@
 	}
 	.compare td {
 		font-family: 'Roboto Slab', serif;
+		text-align: right;
 	}
 	.compare .section-row th,
 	.compare .section-row td {

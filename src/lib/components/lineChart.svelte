@@ -3,7 +3,7 @@
 	import Chart from 'chart.js/auto';
 	import 'chartjs-adapter-date-fns';
 
-	let { datasets } = $props();
+	let { datasets, markers = [] } = $props();
 	let canvas;
 	let chart;
 	const themeStore = getContext('theme');
@@ -20,10 +20,33 @@
 			borderColor: ds.color,
 			backgroundColor: ds.fill ? hexToRgba(ds.color, 0.1) : 'transparent',
 			fill: !!ds.fill,
+			borderDash: ds.borderDash ?? [],
 			tension: 0.1,
 			pointRadius: 0.5,
 			pointHitRadius: 10,
 			borderWidth: 2
+		}));
+	}
+
+	function buildMarkerDatasets(markerList, list) {
+		if (!markerList.length || !list.length) return [];
+		const values = list.flatMap((ds) => ds.data.map((d) => d.y)).filter(Number.isFinite);
+		if (!values.length) return [];
+		const minY = Math.min(...values);
+		const maxY = Math.max(...values);
+		return markerList.map((marker) => ({
+			label: marker.label,
+			data: [
+				{ x: marker.x, y: minY },
+				{ x: marker.x, y: maxY }
+			],
+			borderColor: marker.color ?? 'rgba(255,255,255,0.35)',
+			borderDash: marker.dash ?? [6, 4],
+			fill: false,
+			tension: 0,
+			pointRadius: 0,
+			pointHitRadius: 0,
+			borderWidth: 1.5
 		}));
 	}
 
@@ -33,7 +56,7 @@
 		if (!chart) {
 			chart = new Chart(canvas, {
 				type: 'line',
-				data: { datasets: buildDatasets(datasets) },
+				data: { datasets: [...buildDatasets(datasets), ...buildMarkerDatasets(markers, datasets)] },
 				options: {
 					responsive: true,
 					interaction: { mode: 'nearest', intersect: false },
@@ -84,7 +107,7 @@
 			return;
 		}
 
-		chart.data.datasets = buildDatasets(datasets);
+		chart.data.datasets = [...buildDatasets(datasets), ...buildMarkerDatasets(markers, datasets)];
 		chart.options.scales.x.ticks.color = tickColor;
 		chart.options.scales.y.ticks.color = tickColor;
 		chart.options.scales.x.grid.color = gridColor;

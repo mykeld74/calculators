@@ -144,6 +144,70 @@ export function calculateRunOutAge(
 	return null;
 }
 
+export function projectDrawdownSeries(
+	s,
+	retirementBalanceStart,
+	inheritanceBalanceStart,
+	uninvestedCashStart,
+	now = new Date()
+) {
+	const monthlyWithdrawal =
+		((retirementBalanceStart + inheritanceBalanceStart + uninvestedCashStart) *
+			(s.withdrawalRate / 100)) /
+		12;
+	const age = currentAge(s, now);
+	const monthsToRetirement = Math.max((s.retirementAge - age) * 12, 0);
+	const maxMonths = Math.max((120 - s.retirementAge) * 12, 0);
+	const retirementRate = s.interestRate / 100;
+	const inheritanceRate = (s.inheritanceReturnRate ?? 0) / 100;
+	const compoundEvery = 12 / s.timesCompounded;
+
+	let retirementBalance = retirementBalanceStart;
+	let inheritanceBalance = inheritanceBalanceStart;
+	let uninvestedCash = uninvestedCashStart;
+	let currentDate = new Date(now.getFullYear(), now.getMonth() + monthsToRetirement);
+
+	const series = [
+		{
+			x: currentDate.getTime(),
+			y: +(retirementBalance + inheritanceBalance + uninvestedCash).toFixed(2)
+		}
+	];
+
+	if (monthlyWithdrawal <= 0) return series;
+
+	for (let i = 1; i <= maxMonths; i++) {
+		if (retirementBalance > 0 && i % compoundEvery === 0) {
+			retirementBalance *= 1 + retirementRate / s.timesCompounded;
+		}
+		if (inheritanceBalance > 0 && i % compoundEvery === 0) {
+			inheritanceBalance *= 1 + inheritanceRate / s.timesCompounded;
+		}
+
+		const totalBeforeWithdrawal = retirementBalance + inheritanceBalance + uninvestedCash;
+		if (totalBeforeWithdrawal <= 0) break;
+
+		const withdrawal = Math.min(monthlyWithdrawal, totalBeforeWithdrawal);
+		const retirementShare = retirementBalance / totalBeforeWithdrawal;
+		const inheritanceShare = inheritanceBalance / totalBeforeWithdrawal;
+		const cashShare = uninvestedCash / totalBeforeWithdrawal;
+
+		retirementBalance = Math.max(retirementBalance - withdrawal * retirementShare, 0);
+		inheritanceBalance = Math.max(inheritanceBalance - withdrawal * inheritanceShare, 0);
+		uninvestedCash = Math.max(uninvestedCash - withdrawal * cashShare, 0);
+
+		currentDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1);
+		series.push({
+			x: currentDate.getTime(),
+			y: +(retirementBalance + inheritanceBalance + uninvestedCash).toFixed(2)
+		});
+
+		if (retirementBalance + inheritanceBalance + uninvestedCash <= 0) break;
+	}
+
+	return series;
+}
+
 export function calculateSuggestedWithdrawalRate(s, now = new Date()) {
 	const { finalBalance, inheritanceBalance, uninvestedInheritance } = projectBalance(s, now);
 	const totalAtRetirement = finalBalance + inheritanceBalance + uninvestedInheritance;
@@ -191,11 +255,15 @@ export function computeResults(s, now = new Date()) {
 	const { finalBalance, inheritanceBalance, uninvestedInheritance } = projection;
 	const totalNestEgg = finalBalance + inheritanceBalance + uninvestedInheritance;
 	const monthlyWithdrawal = (totalNestEgg * (s.withdrawalRate / 100)) / 12;
-	const runOutAge = calculateRunOutAge(
+	const effectiveWithdrawalRate =
+		totalNestEgg > 0 ? (monthlyWithdrawal * 12 * 100) / totalNestEgg : 0;
+	const runOutAge = calculateRunOutAge(s, finalBalance, inheritanceBalance, uninvestedInheritance);
+	const drawdownSeries = projectDrawdownSeries(
 		s,
 		finalBalance,
 		inheritanceBalance,
-		uninvestedInheritance
+		uninvestedInheritance,
+		now
 	);
 	const gross = monthlyWithdrawal + s.monthlySS;
 	const federal = gross * (s.federalRate / 100);
@@ -206,7 +274,9 @@ export function computeResults(s, now = new Date()) {
 		...projection,
 		totalNestEgg,
 		monthlyWithdrawal,
+		effectiveWithdrawalRate,
 		runOutAge,
+		drawdownSeries,
 		gross,
 		federal,
 		stateTax,
