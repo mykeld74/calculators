@@ -224,16 +224,18 @@
 				label: r.scenario.label,
 				data: r.results.series,
 				color,
-				fill: r.scenario.id === activeScenarioId
+				fill: r.scenario.id === activeScenarioId,
+				legendGroup: 'Accumulation'
 			};
 			const drawdown =
 				r.results.drawdownSeries?.length > 1
 					? {
-							label: `${r.scenario.label} (retired drawdown)`,
+							label: `${r.scenario.label} - Retired`,
 							data: r.results.drawdownSeries,
 							color,
 							fill: false,
-							borderDash: [6, 4]
+							borderDash: [6, 4],
+							legendGroup: 'Retired'
 						}
 					: null;
 			return drawdown ? [accumulation, drawdown] : [accumulation];

@@ -21,12 +21,23 @@
 			backgroundColor: ds.fill ? hexToRgba(ds.color, 0.1) : 'transparent',
 			fill: !!ds.fill,
 			borderDash: ds.borderDash ?? [],
+			showInLegend: ds.showInLegend ?? true,
 			tension: 0.1,
 			pointRadius: 0.5,
 			pointHitRadius: 10,
 			borderWidth: 2
 		}));
 	}
+
+	function legendItemsByGroup(list) {
+		const visibleItems = list.filter((ds) => ds.showInLegend !== false);
+		return {
+			accumulation: visibleItems.filter((ds) => ds.legendGroup !== 'Retired'),
+			retired: visibleItems.filter((ds) => ds.legendGroup === 'Retired')
+		};
+	}
+
+	let legendGroups = $derived(legendItemsByGroup(datasets ?? []));
 
 	function buildMarkerDatasets(markerList, list) {
 		if (!markerList.length || !list.length) return [];
@@ -43,6 +54,7 @@
 			borderColor: marker.color ?? 'rgba(255,255,255,0.35)',
 			borderDash: marker.dash ?? [6, 4],
 			fill: false,
+			showInLegend: false,
 			tension: 0,
 			pointRadius: 0,
 			pointHitRadius: 0,
@@ -98,7 +110,7 @@
 									})}`
 							}
 						},
-						legend: { labels: { color: tickColor } }
+						legend: { display: false }
 					},
 					parsing: true,
 					normalized: true
@@ -112,7 +124,6 @@
 		chart.options.scales.y.ticks.color = tickColor;
 		chart.options.scales.x.grid.color = gridColor;
 		chart.options.scales.y.grid.color = gridColor;
-		chart.options.plugins.legend.labels.color = tickColor;
 		chart.update();
 	});
 
@@ -138,10 +149,115 @@
 	});
 </script>
 
-<canvas bind:this={canvas}></canvas>
+<div class="chartShell">
+	<div class="legendFlyout">
+		<button type="button" class="legendIcon" aria-label="Show chart legend">Legend</button>
+		<div class="legendPanel">
+			{#if legendGroups.accumulation.length > 0}
+				<div class="legendSection">
+					<div class="legendTitle">Accumulation</div>
+					{#each legendGroups.accumulation as item}
+						<div class="legendItem">
+							<span
+								class="legendLine"
+								style:border-color={item.color}
+								style:border-style={item.borderDash?.length ? 'dashed' : 'solid'}
+							></span>
+							<span class="legendLabel">{item.label}</span>
+						</div>
+					{/each}
+				</div>
+			{/if}
+			{#if legendGroups.retired.length > 0}
+				<div class="legendSection">
+					<div class="legendTitle">Retired</div>
+					{#each legendGroups.retired as item}
+						<div class="legendItem">
+							<span
+								class="legendLine"
+								style:border-color={item.color}
+								style:border-style={item.borderDash?.length ? 'dashed' : 'solid'}
+							></span>
+							<span class="legendLabel">{item.label}</span>
+						</div>
+					{/each}
+				</div>
+			{/if}
+		</div>
+	</div>
+	<canvas bind:this={canvas}></canvas>
+</div>
 
 <style>
 	canvas {
 		max-width: 90%;
+	}
+	.chartShell {
+		position: relative;
+	}
+	.legendFlyout {
+		position: absolute;
+		top: 0.25rem;
+		right: 0.25rem;
+		z-index: 5;
+	}
+	.legendIcon {
+		height: 1.9rem;
+		padding: 0 0.7rem;
+		border-radius: 999px;
+		border: 1px solid rgba(255, 255, 255, 0.3);
+		background: rgba(0, 0, 0, 0.35);
+		color: #fff;
+		font-size: 0.8rem;
+		font-weight: 700;
+		letter-spacing: 0.02em;
+		text-transform: uppercase;
+		cursor: pointer;
+	}
+	.legendPanel {
+		display: none;
+		position: absolute;
+		top: 2.1rem;
+		right: 0;
+		min-width: 220px;
+		background: rgba(0, 0, 0, 0.8);
+		border: 1px solid rgba(255, 255, 255, 0.2);
+		border-radius: 8px;
+		padding: 0.6rem 0.75rem;
+		backdrop-filter: blur(2px);
+	}
+	.legendFlyout:hover .legendPanel,
+	.legendFlyout:focus-within .legendPanel {
+		display: block;
+	}
+	.legendSection + .legendSection {
+		margin-top: 0.6rem;
+		padding-top: 0.55rem;
+		border-top: 1px solid rgba(255, 255, 255, 0.14);
+	}
+	.legendTitle {
+		font-size: 0.72rem;
+		text-transform: uppercase;
+		letter-spacing: 0.09em;
+		opacity: 0.75;
+		margin-bottom: 0.4rem;
+	}
+	.legendItem {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 0.85rem;
+	}
+	.legendItem + .legendItem {
+		margin-top: 0.25rem;
+	}
+	.legendLine {
+		display: inline-block;
+		width: 24px;
+		border-top-width: 2px;
+		border-top-style: solid;
+	}
+	.legendLabel {
+		line-height: 1.2;
 	}
 </style>
