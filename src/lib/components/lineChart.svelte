@@ -4,7 +4,7 @@
 	import 'chartjs-adapter-date-fns';
 
 	let { datasets, markers = [] } = $props();
-	let canvas;
+	let canvas = $state(undefined);
 	let chart;
 	const themeStore = getContext('theme');
 	let currentTheme = $state('dark');
@@ -64,13 +64,16 @@
 
 	$effect(() => {
 		if (!canvas || !datasets || datasets.length === 0) return;
+		const nextDatasets = [...buildDatasets(datasets), ...buildMarkerDatasets(markers, datasets)];
+		if (nextDatasets.length === 0) return;
 
 		if (!chart) {
 			chart = new Chart(canvas, {
 				type: 'line',
-				data: { datasets: [...buildDatasets(datasets), ...buildMarkerDatasets(markers, datasets)] },
+				data: { datasets: nextDatasets },
 				options: {
 					responsive: true,
+					maintainAspectRatio: false,
 					interaction: { mode: 'nearest', intersect: false },
 					scales: {
 						x: {
@@ -119,7 +122,7 @@
 			return;
 		}
 
-		chart.data.datasets = [...buildDatasets(datasets), ...buildMarkerDatasets(markers, datasets)];
+		chart.data.datasets = nextDatasets;
 		chart.options.scales.x.ticks.color = tickColor;
 		chart.options.scales.y.ticks.color = tickColor;
 		chart.options.scales.x.grid.color = gridColor;
@@ -190,10 +193,14 @@
 
 <style>
 	canvas {
-		max-width: 90%;
+		display: block;
+		width: 100%;
+		height: 100%;
 	}
 	.chartShell {
 		position: relative;
+		width: min(100%, 960px);
+		height: 360px;
 	}
 	.legendFlyout {
 		position: absolute;
