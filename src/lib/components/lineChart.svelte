@@ -9,80 +9,88 @@
 	const themeStore = getContext('theme');
 	let currentTheme = $state('default');
 	let tickColor = $derived(currentTheme === 'light' ? '#000' : '#dedede');
+	let gridColor = $derived(
+		currentTheme === 'light' ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.1)'
+	);
 
-	themeStore.subscribe((value) => {
-		currentTheme = value;
-	});
+	function buildDatasets(list) {
+		return list.map((ds) => ({
+			label: ds.label,
+			data: ds.data.map((d) => ({ x: d.x, y: d.y })),
+			borderColor: ds.color,
+			backgroundColor: ds.fill ? hexToRgba(ds.color, 0.1) : 'transparent',
+			fill: !!ds.fill,
+			tension: 0.1,
+			pointRadius: 0.5,
+			pointHitRadius: 10,
+			borderWidth: 2
+		}));
+	}
 
 	$effect(() => {
 		if (!canvas || !datasets || datasets.length === 0) return;
 
-		if (chart) chart.destroy();
-
-		const chartData = {
-			datasets: datasets.map((ds) => ({
-				label: ds.label,
-				data: ds.data.map((d) => ({ x: d.x, y: d.y })),
-				borderColor: ds.color,
-				backgroundColor: ds.fill ? hexToRgba(ds.color, 0.1) : 'transparent',
-				fill: !!ds.fill,
-				tension: 0.1,
-				pointRadius: 0.5,
-				pointHitRadius: 10,
-				borderWidth: 2
-			}))
-		};
-
-		chart = new Chart(canvas, {
-			type: 'line',
-			data: chartData,
-			options: {
-				responsive: true,
-				interaction: { mode: 'nearest', intersect: false },
-				scales: {
-					x: {
-						type: 'time',
-						time: { unit: 'month' },
-						ticks: { color: tickColor },
-						grid: { color: 'rgba(255, 255, 255, 0.1)' }
-					},
-					y: {
-						ticks: {
-							color: tickColor,
-							callback: (value) =>
-								`${value.toLocaleString('en-US', {
-									style: 'currency',
-									currency: 'USD',
-									maximumFractionDigits: 0
-								})}`
+		if (!chart) {
+			chart = new Chart(canvas, {
+				type: 'line',
+				data: { datasets: buildDatasets(datasets) },
+				options: {
+					responsive: true,
+					interaction: { mode: 'nearest', intersect: false },
+					scales: {
+						x: {
+							type: 'time',
+							time: { unit: 'month' },
+							ticks: { color: tickColor },
+							grid: { color: gridColor }
 						},
-						grid: { color: 'rgba(255, 255, 255, 0.1)' }
-					}
-				},
-				plugins: {
-					tooltip: {
-						callbacks: {
-							title: (context) => {
-								const date = new Date(context[0].parsed.x);
-								return date.toLocaleDateString('en-US', {
-									month: 'long',
-									year: 'numeric'
-								});
+						y: {
+							ticks: {
+								color: tickColor,
+								callback: (value) =>
+									value.toLocaleString('en-US', {
+										style: 'currency',
+										currency: 'USD',
+										maximumFractionDigits: 0
+									})
 							},
-							label: (context) =>
-								`${context.dataset.label}: ${context.parsed.y.toLocaleString('en-US', {
-									style: 'currency',
-									currency: 'USD',
-									maximumFractionDigits: 0
-								})}`
+							grid: { color: gridColor }
 						}
 					},
-					legend: { labels: { color: tickColor } }
-				},
-				parsing: true,
-				normalized: true
-			}
-		});
+					plugins: {
+						tooltip: {
+							callbacks: {
+								title: (context) => {
+									const date = new Date(context[0].parsed.x);
+									return date.toLocaleDateString('en-US', {
+										month: 'long',
+										year: 'numeric'
+									});
+								},
+								label: (context) =>
+									`${context.dataset.label}: ${context.parsed.y.toLocaleString('en-US', {
+										style: 'currency',
+										currency: 'USD',
+										maximumFractionDigits: 0
+									})}`
+							}
+						},
+						legend: { labels: { color: tickColor } }
+					},
+					parsing: true,
+					normalized: true
+				}
+			});
+			return;
+		}
+
+		chart.data.datasets = buildDatasets(datasets);
+		chart.options.scales.x.ticks.color = tickColor;
+		chart.options.scales.y.ticks.color = tickColor;
+		chart.options.scales.x.grid.color = gridColor;
+		chart.options.scales.y.grid.color = gridColor;
+		chart.options.plugins.legend.labels.color = tickColor;
+		chart.update();
 	});
 
 	function hexToRgba(color, alpha) {
@@ -97,7 +105,11 @@
 	}
 
 	onMount(() => {
+		const unsubscribe = themeStore.subscribe((value) => {
+			currentTheme = value;
+		});
 		return () => {
+			unsubscribe();
 			if (chart) chart.destroy();
 		};
 	});

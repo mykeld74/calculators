@@ -5,9 +5,12 @@
 	--sliderThumbSize: 1.75rem;
 	--fontColor: oklch(1 0 0);
 	--mainBackgroundColor: oklch(0 0 0);
-	--fontColor: oklch(1 0 0);
 	--navBackgroundColor: oklch(1 0 0);
 	--tableFontColor: oklch(0.8 0 0);
+	--borderColor: rgba(255, 255, 255, 0.15);
+	--borderColorSoft: rgba(255, 255, 255, 0.08);
+	--accentColor: rgba(120, 220, 220, 0.95);
+	--accentSurface: rgba(75, 192, 192, 0.08);
 }
 body {
 	background: var(--mainBackgroundColor);
@@ -33,6 +36,10 @@ body {
 	--mainBackgroundColor: oklch(1 0 0);
 	--navBackgroundColor: oklch(1 0 0);
 	--tableFontColor: oklch(0.25 0 0);
+	--borderColor: rgba(0, 0, 0, 0.18);
+	--borderColorSoft: rgba(0, 0, 0, 0.1);
+	--accentColor: oklch(0.45 0.12 195);
+	--accentSurface: rgba(30, 140, 140, 0.1);
 }
 main {
 	padding-block-end: 2rem;

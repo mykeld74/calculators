@@ -1,6 +1,7 @@
 <script>
-	import { LineChart } from '$lib';
+	import { LineChart, NumberOrRange } from '$lib';
 	import { onMount } from 'svelte';
+	import { currentAge, computeResults, calculateSuggestedWithdrawalRate } from '$lib/retirement.js';
 
 	const STORAGE_KEY = 'retirement-scenarios-v2';
 	const PALETTE = ['#4bc0c0', '#ff9f40', '#9966ff', '#ff6384', '#36a2eb', '#ffce56', '#8ed081'];
@@ -99,244 +100,87 @@
 		scenario[key] = parseUsdInput(value);
 	}
 
-	function currentAge(s) {
-		if (!s?.birthdate) return 0;
-		const birth = new Date(s.birthdate);
-		if (Number.isNaN(birth.getTime())) return 0;
-		const now = new Date();
-		let age = now.getFullYear() - birth.getFullYear();
-		const m = now.getMonth() - birth.getMonth();
-		if (m < 0 || (m === 0 && now.getDate() < birth.getDate())) age--;
-		return age;
+	const monthOptions = [
+		{ value: 1, label: 'Jan' },
+		{ value: 2, label: 'Feb' },
+		{ value: 3, label: 'Mar' },
+		{ value: 4, label: 'Apr' },
+		{ value: 5, label: 'May' },
+		{ value: 6, label: 'Jun' },
+		{ value: 7, label: 'Jul' },
+		{ value: 8, label: 'Aug' },
+		{ value: 9, label: 'Sep' },
+		{ value: 10, label: 'Oct' },
+		{ value: 11, label: 'Nov' },
+		{ value: 12, label: 'Dec' }
+	];
+
+	const CURRENT_YEAR = new Date().getFullYear();
+	const YEAR_OPTIONS = Array.from(
+		{ length: CURRENT_YEAR - 1900 + 1 },
+		(_, idx) => CURRENT_YEAR - idx
+	);
+
+	function daysInMonth(year, month) {
+		return new Date(year, month, 0).getDate();
 	}
 
-	function employerPercent(s) {
-		return s.employerMatch ?? 0;
+	function getBirthdateParts(s) {
+		const fallback = { year: 1974, month: 1, day: 1 };
+		if (!s?.birthdate) return fallback;
+		const [yRaw, mRaw, dRaw] = s.birthdate.split('-');
+		const year = Number(yRaw);
+		const month = Number(mRaw);
+		const day = Number(dRaw);
+		if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day))
+			return fallback;
+		const safeYear = Math.min(Math.max(year, 1900), CURRENT_YEAR);
+		const safeMonth = Math.min(Math.max(month, 1), 12);
+		const safeDay = Math.min(Math.max(day, 1), daysInMonth(safeYear, safeMonth));
+		return { year: safeYear, month: safeMonth, day: safeDay };
 	}
 
-	function calculateRunOutAge(
-		s,
-		retirementBalanceStart,
-		inheritanceBalanceStart,
-		uninvestedCashStart
-	) {
-		if (s.withdrawalRate <= 0) return null;
+	let activeBirthdateParts = $derived(getBirthdateParts(activeScenario));
+	let activeDaysInMonth = $derived(
+		Array.from(
+			{ length: daysInMonth(activeBirthdateParts.year, activeBirthdateParts.month) },
+			(_, i) => i + 1
+		)
+	);
 
-		const monthlyWithdrawal =
-			((retirementBalanceStart + inheritanceBalanceStart + uninvestedCashStart) *
-				(s.withdrawalRate / 100)) /
-			12;
-		if (monthlyWithdrawal <= 0) return null;
+	function updateBirthdatePart(scenario, part, rawValue) {
+		if (!scenario) return;
+		const parts = getBirthdateParts(scenario);
+		const value = Number(rawValue);
+		if (!Number.isInteger(value)) return;
+		const next = { ...parts, [part]: value };
+		next.year = Math.max(1900, Math.min(next.year, CURRENT_YEAR));
+		next.month = Math.max(1, Math.min(next.month, 12));
+		next.day = Math.max(1, Math.min(next.day, daysInMonth(next.year, next.month)));
+		const mm = String(next.month).padStart(2, '0');
+		const dd = String(next.day).padStart(2, '0');
+		scenario.birthdate = `${next.year}-${mm}-${dd}`;
+	}
 
-		let retirementBalance = retirementBalanceStart;
-		let inheritanceBalance = inheritanceBalanceStart;
-		let uninvestedCash = uninvestedCashStart;
+	function monthlyEmployeeContributionFromPercent(s) {
+		return (s.annualSalary * (s.contributionPercent / 100)) / 12;
+	}
 
-		const retirementRate = s.interestRate / 100;
-		const inheritanceRate = (s.inheritanceReturnRate ?? 0) / 100;
-		const retirementCompoundEvery = 12 / s.timesCompounded;
-		const inheritanceCompoundEvery = 12 / s.timesCompounded;
-		const maxMonths = Math.max((120 - s.retirementAge) * 12, 0);
-
-		for (let i = 1; i <= maxMonths; i++) {
-			if (retirementBalance > 0 && i % retirementCompoundEvery === 0) {
-				retirementBalance = retirementBalance * (1 + retirementRate / s.timesCompounded);
-			}
-			if (inheritanceBalance > 0 && i % inheritanceCompoundEvery === 0) {
-				inheritanceBalance = inheritanceBalance * (1 + inheritanceRate / s.timesCompounded);
-			}
-
-			const totalBeforeWithdrawal = retirementBalance + inheritanceBalance + uninvestedCash;
-			if (totalBeforeWithdrawal <= 0) return s.retirementAge + (i - 1) / 12;
-
-			const withdrawal = Math.min(monthlyWithdrawal, totalBeforeWithdrawal);
-			const retirementShare = retirementBalance / totalBeforeWithdrawal;
-			const inheritanceShare = inheritanceBalance / totalBeforeWithdrawal;
-			const cashShare = uninvestedCash / totalBeforeWithdrawal;
-
-			retirementBalance = Math.max(retirementBalance - withdrawal * retirementShare, 0);
-			inheritanceBalance = Math.max(inheritanceBalance - withdrawal * inheritanceShare, 0);
-			uninvestedCash = Math.max(uninvestedCash - withdrawal * cashShare, 0);
-
-			if (retirementBalance + inheritanceBalance + uninvestedCash <= 0) {
-				return s.retirementAge + i / 12;
-			}
+	function updateContributionFromAmount(scenario, value) {
+		if (!scenario) return;
+		const monthlyAmount = parseUsdInput(value);
+		if (scenario.annualSalary <= 0) {
+			scenario.contributionPercent = 0;
+			return;
 		}
-
-		return null;
-	}
-
-	function calculateSuggestedWithdrawalRate(s) {
-		const { finalBalance, inheritanceBalance, uninvestedInheritance } = projectBalance(s);
-		const totalAtRetirement = finalBalance + inheritanceBalance + uninvestedInheritance;
-		if (totalAtRetirement <= 0) return s.withdrawalRate;
-
-		const targetAge = Math.max(s.lifeExpectancyAge ?? 90, s.retirementAge + 1);
-		const minRate = 0.1;
-		const maxRate = 20;
-
-		const runOutAtMin = calculateRunOutAge(
-			{ ...s, withdrawalRate: minRate },
-			finalBalance,
-			inheritanceBalance,
-			uninvestedInheritance
-		);
-		if (runOutAtMin !== null && runOutAtMin < targetAge) return minRate;
-
-		const runOutAtMax = calculateRunOutAge(
-			{ ...s, withdrawalRate: maxRate },
-			finalBalance,
-			inheritanceBalance,
-			uninvestedInheritance
-		);
-		if (runOutAtMax === null || runOutAtMax > targetAge) return maxRate;
-
-		let low = minRate;
-		let high = maxRate;
-		for (let i = 0; i < 28; i++) {
-			const mid = (low + high) / 2;
-			const runOutAtMid = calculateRunOutAge(
-				{ ...s, withdrawalRate: mid },
-				finalBalance,
-				inheritanceBalance,
-				uninvestedInheritance
-			);
-			if (runOutAtMid === null || runOutAtMid > targetAge) low = mid;
-			else high = mid;
-		}
-
-		return Math.round(high * 10) / 10;
+		const nextPercent = (monthlyAmount * 12 * 100) / scenario.annualSalary;
+		scenario.contributionPercent = Math.max(0, Math.min(50, Math.round(nextPercent * 10) / 10));
 	}
 
 	function adjustWithdrawalRateToLifeExpectancy(s) {
 		if (!s) return;
 		const suggestedRate = calculateSuggestedWithdrawalRate(s);
 		s.withdrawalRate = Math.max(0.1, Math.min(20, suggestedRate));
-	}
-
-	function projectBalance(s) {
-		const age = currentAge(s);
-		const years = Math.max(s.retirementAge - age, 0);
-		const totalMonths = years * 12;
-		const employerPct = employerPercent(s);
-		const totalContribPercent = s.contributionPercent + employerPct;
-		const monthlyContribution = (s.annualSalary * (totalContribPercent / 100)) / 12;
-		const monthlyEmployeeContribution = (s.annualSalary * (s.contributionPercent / 100)) / 12;
-		const monthlyEmployerContribution = (s.annualSalary * (employerPct / 100)) / 12;
-
-		const retirementRate = s.interestRate / 100;
-		const retirementCompoundEvery = 12 / s.timesCompounded;
-
-		const inheritanceRate = (s.inheritanceReturnRate ?? 0) / 100;
-		const inheritanceCompoundEvery = 12 / s.timesCompounded;
-
-		const inheritanceMonthFromNow = (s.inheritanceAge - age) * 12;
-		const hasInheritance = s.inheritanceAmount > 0;
-		const alreadyReceived = hasInheritance && inheritanceMonthFromNow <= 0;
-
-		const now = new Date();
-		let month = now.getMonth();
-		let year = now.getFullYear();
-
-		let retirementBalance = s.currentBalance;
-		let inheritanceBalance = 0;
-		let uninvestedInheritance = 0;
-
-		if (alreadyReceived) {
-			if (s.inheritanceInvested) inheritanceBalance += s.inheritanceAmount;
-			else uninvestedInheritance += s.inheritanceAmount;
-		}
-
-		const series = [
-			{
-				x: new Date(year, month).getTime(),
-				y: +(retirementBalance + inheritanceBalance + uninvestedInheritance).toFixed(2)
-			}
-		];
-
-		for (let i = 1; i <= totalMonths; i++) {
-			if (i % retirementCompoundEvery === 0) {
-				retirementBalance = retirementBalance * (1 + retirementRate / s.timesCompounded);
-			}
-			retirementBalance += monthlyContribution;
-
-			if (hasInheritance && inheritanceMonthFromNow > 0 && i === inheritanceMonthFromNow) {
-				if (s.inheritanceInvested) inheritanceBalance += s.inheritanceAmount;
-				else uninvestedInheritance += s.inheritanceAmount;
-			}
-
-			if (inheritanceBalance > 0 && i % inheritanceCompoundEvery === 0) {
-				inheritanceBalance = inheritanceBalance * (1 + inheritanceRate / s.timesCompounded);
-			}
-
-			month++;
-			if (month > 11) {
-				month = 0;
-				year++;
-			}
-			series.push({
-				x: new Date(year, month).getTime(),
-				y: +(retirementBalance + inheritanceBalance + uninvestedInheritance).toFixed(2)
-			});
-		}
-
-		return {
-			finalBalance: retirementBalance,
-			inheritanceBalance,
-			uninvestedInheritance,
-			series,
-			years,
-			monthlyContribution,
-			monthlyEmployeeContribution,
-			monthlyEmployerContribution,
-			employerPct
-		};
-	}
-
-	function computeResults(s) {
-		const {
-			finalBalance,
-			inheritanceBalance,
-			uninvestedInheritance,
-			series,
-			years,
-			monthlyContribution,
-			monthlyEmployeeContribution,
-			monthlyEmployerContribution,
-			employerPct
-		} = projectBalance(s);
-		const totalNestEgg = finalBalance + inheritanceBalance + uninvestedInheritance;
-		const monthlyWithdrawal = (totalNestEgg * (s.withdrawalRate / 100)) / 12;
-		const runOutAge = calculateRunOutAge(
-			s,
-			finalBalance,
-			inheritanceBalance,
-			uninvestedInheritance
-		);
-		const gross = monthlyWithdrawal + s.monthlySS;
-		const federal = gross * (s.federalRate / 100);
-		const stateTax = gross * (s.stateRate / 100);
-		const medicare = gross * (s.medicareRate / 100);
-		const takeHome = gross - federal - stateTax - medicare;
-		return {
-			years,
-			monthlyContribution,
-			monthlyEmployeeContribution,
-			monthlyEmployerContribution,
-			employerPct,
-			finalBalance,
-			inheritanceBalance,
-			uninvestedInheritance,
-			totalNestEgg,
-			monthlyWithdrawal,
-			runOutAge,
-			gross,
-			federal,
-			stateTax,
-			medicare,
-			takeHome,
-			series
-		};
 	}
 
 	let allResults = $derived(scenarios.map((s) => ({ scenario: s, results: computeResults(s) })));
@@ -445,12 +289,38 @@
 					<div class="group-grid">
 						<div class="field">
 							<label for="birthdate">Birthdate</label>
-							<input
-								type="date"
-								id="birthdate"
-								bind:value={activeScenario.birthdate}
-								max={new Date().toISOString().slice(0, 10)}
-							/>
+							<div class="datePickerGrid">
+								<select
+									id="birthMonth"
+									value={activeBirthdateParts.month}
+									onchange={(e) =>
+										updateBirthdatePart(activeScenario, 'month', e.currentTarget.value)}
+								>
+									{#each monthOptions as month}
+										<option value={month.value}>{month.label}</option>
+									{/each}
+								</select>
+								<select
+									id="birthDay"
+									value={activeBirthdateParts.day}
+									onchange={(e) =>
+										updateBirthdatePart(activeScenario, 'day', e.currentTarget.value)}
+								>
+									{#each activeDaysInMonth as day}
+										<option value={day}>{day}</option>
+									{/each}
+								</select>
+								<select
+									id="birthYear"
+									value={activeBirthdateParts.year}
+									onchange={(e) =>
+										updateBirthdatePart(activeScenario, 'year', e.currentTarget.value)}
+								>
+									{#each YEAR_OPTIONS as year}
+										<option value={year}>{year}</option>
+									{/each}
+								</select>
+							</div>
 							<div class="field-note">Age {currentAge(activeScenario)}</div>
 						</div>
 						<div class="field">
@@ -486,27 +356,28 @@
 								<label for="contributionPercent">Your Contribution</label>
 								<span class="field-value">{activeScenario.contributionPercent}%</span>
 							</div>
-							<input
-								type="range"
+							<NumberOrRange
 								id="contributionPercent"
 								bind:value={activeScenario.contributionPercent}
 								min="0"
 								max="50"
 								step="0.5"
 							/>
-							<div class="field-note">
-								{usd(
-									(activeScenario.annualSalary * (activeScenario.contributionPercent / 100)) / 12
-								)} / mo
-							</div>
+							<input
+								type="text"
+								id="contributionAmount"
+								inputmode="numeric"
+								value={formatUsdInput(monthlyEmployeeContributionFromPercent(activeScenario))}
+								oninput={(e) => updateContributionFromAmount(activeScenario, e.currentTarget.value)}
+							/>
+							<div class="field-note">Monthly contribution (editable)</div>
 						</div>
 						<div class="field">
 							<div class="field-head">
 								<label for="employerMatch">Employer Match</label>
 								<span class="field-value">{activeScenario.employerMatch}%</span>
 							</div>
-							<input
-								type="range"
+							<NumberOrRange
 								id="employerMatch"
 								bind:value={activeScenario.employerMatch}
 								min="0"
@@ -522,8 +393,7 @@
 								<label for="interestRate">Interest Rate</label>
 								<span class="field-value">{activeScenario.interestRate}%</span>
 							</div>
-							<input
-								type="range"
+							<NumberOrRange
 								id="interestRate"
 								bind:value={activeScenario.interestRate}
 								min="1"
@@ -550,9 +420,8 @@
 								<label for="retirementAge">Retirement Age</label>
 								<span class="field-value">{activeScenario.retirementAge}</span>
 							</div>
-							<input
+							<NumberOrRange
 								id="retirementAge"
-								type="range"
 								bind:value={activeScenario.retirementAge}
 								min={currentAge(activeScenario) + 1}
 								max="100"
@@ -567,8 +436,7 @@
 								<label for="withdrawalRate">Withdrawal Rate</label>
 								<span class="field-value">{activeScenario.withdrawalRate}%</span>
 							</div>
-							<input
-								type="range"
+							<NumberOrRange
 								id="withdrawalRate"
 								bind:value={activeScenario.withdrawalRate}
 								min="2"
@@ -581,9 +449,8 @@
 								<label for="lifeExpectancyAge">Life Expectancy Age</label>
 								<span class="field-value">{activeScenario.lifeExpectancyAge}</span>
 							</div>
-							<input
+							<NumberOrRange
 								id="lifeExpectancyAge"
-								type="range"
 								bind:value={activeScenario.lifeExpectancyAge}
 								min={activeScenario.retirementAge + 1}
 								max="120"
@@ -594,7 +461,7 @@
 						<div class="field action-field">
 							<button
 								type="button"
-								class="ghost-btn"
+								class="action-btn"
 								onclick={() => adjustWithdrawalRateToLifeExpectancy(activeScenario)}
 							>
 								Match withdrawal rate to life expectancy
@@ -622,8 +489,7 @@
 								<label for="federalRate">Federal</label>
 								<span class="field-value">{activeScenario.federalRate}%</span>
 							</div>
-							<input
-								type="range"
+							<NumberOrRange
 								id="federalRate"
 								bind:value={activeScenario.federalRate}
 								min="0"
@@ -636,8 +502,7 @@
 								<label for="stateRate">State</label>
 								<span class="field-value">{activeScenario.stateRate}%</span>
 							</div>
-							<input
-								type="range"
+							<NumberOrRange
 								id="stateRate"
 								bind:value={activeScenario.stateRate}
 								min="0"
@@ -650,8 +515,7 @@
 								<label for="medicareRate">Medicare</label>
 								<span class="field-value">{activeScenario.medicareRate}%</span>
 							</div>
-							<input
-								type="range"
+							<NumberOrRange
 								id="medicareRate"
 								bind:value={activeScenario.medicareRate}
 								min="0"
@@ -681,8 +545,7 @@
 								<label for="inheritanceAge">Age Received</label>
 								<span class="field-value">{activeScenario.inheritanceAge}</span>
 							</div>
-							<input
-								type="range"
+							<NumberOrRange
 								id="inheritanceAge"
 								bind:value={activeScenario.inheritanceAge}
 								min={currentAge(activeScenario)}
@@ -705,8 +568,7 @@
 								<label for="inheritanceReturnRate">Index Return</label>
 								<span class="field-value">{activeScenario.inheritanceReturnRate}%</span>
 							</div>
-							<input
-								type="range"
+							<NumberOrRange
 								id="inheritanceReturnRate"
 								bind:value={activeScenario.inheritanceReturnRate}
 								min="0"
@@ -982,7 +844,7 @@
 		width: 100%;
 		max-width: 1100px;
 		padding: 1.5rem;
-		border: 1px solid rgba(255, 255, 255, 0.15);
+		border: 1px solid var(--borderColor);
 		border-radius: 10px;
 	}
 	.panel h2 {
@@ -996,7 +858,7 @@
 		gap: 1.5rem;
 	}
 	.group {
-		border: 1px solid rgba(255, 255, 255, 0.12);
+		border: 1px solid var(--borderColorSoft);
 		border-radius: 8px;
 		padding: 1rem 1.25rem 1.25rem;
 		margin: 0;
@@ -1033,10 +895,14 @@
 		opacity: 0.9;
 	}
 	.field input[type='text'],
-	.field input[type='date'],
 	.field select {
 		height: 2.6rem;
 		font-size: 1.1rem;
+	}
+	.datePickerGrid {
+		display: grid;
+		grid-template-columns: 1.2fr 0.8fr 1fr;
+		gap: 0.5rem;
 	}
 	.field-head {
 		display: flex;
@@ -1048,20 +914,39 @@
 		font-family: 'Roboto Slab', serif;
 		font-size: 1.1rem;
 		font-weight: 600;
-		color: rgba(120, 220, 220, 0.95);
+		color: var(--accentColor);
 	}
 	.field-note {
 		font-size: 0.85rem;
 		opacity: 0.6;
 	}
-	.field input[type='range'] {
-		margin-top: 0.25rem;
-	}
 	.action-field {
 		justify-content: flex-end;
 	}
-	.action-field .ghost-btn {
+	.action-field .action-btn {
 		align-self: flex-start;
+		width: 100%;
+	}
+	.action-btn {
+		background: var(--accentColor);
+		color: var(--mainBackgroundColor);
+		border: 1px solid var(--accentColor);
+		padding: 0.7rem 1rem;
+		border-radius: 8px;
+		cursor: pointer;
+		font-size: 0.95rem;
+		font-weight: 700;
+		letter-spacing: 0.01em;
+		transition:
+			transform 140ms ease,
+			filter 140ms ease;
+	}
+	.action-btn:hover {
+		filter: brightness(1.06);
+		transform: translateY(-1px);
+	}
+	.action-btn:active {
+		transform: translateY(0);
 	}
 	.checkbox-field label {
 		display: flex;
@@ -1095,7 +980,7 @@
 		gap: 0.5rem;
 		background: transparent;
 		color: var(--fontColor);
-		border: 1px solid rgba(255, 255, 255, 0.25);
+		border: 1px solid var(--borderColor);
 		padding: 0.6rem 1.2rem;
 		border-radius: 6px;
 		cursor: pointer;
@@ -1123,7 +1008,7 @@
 	.remove-btn {
 		background: transparent;
 		color: var(--fontColor);
-		border: 1px solid rgba(255, 255, 255, 0.25);
+		border: 1px solid var(--borderColor);
 		padding: 0.6rem 1rem;
 		border-radius: 6px;
 		cursor: pointer;
@@ -1155,7 +1040,7 @@
 		justify-content: space-between;
 		align-items: baseline;
 		padding: 0.5rem 0;
-		border-bottom: 1px dashed rgba(255, 255, 255, 0.1);
+		border-bottom: 1px dashed var(--borderColorSoft);
 	}
 	.result span {
 		font-size: 1rem;
@@ -1165,7 +1050,7 @@
 		font-size: 1.1rem;
 	}
 	.result.highlight {
-		background: rgba(75, 192, 192, 0.08);
+		background: var(--accentSurface);
 		padding: 0.6rem 0.75rem;
 		border-radius: 5px;
 		border: none;
@@ -1189,12 +1074,12 @@
 	.compare td {
 		text-align: left;
 		padding: 0.6rem 0.9rem;
-		border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+		border-bottom: 1px solid var(--borderColorSoft);
 		white-space: nowrap;
 	}
 	.compare thead th {
 		font-weight: 600;
-		border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+		border-bottom: 1px solid var(--borderColor);
 	}
 	.compare thead th.active {
 		color: var(--swatch);
@@ -1208,11 +1093,11 @@
 	}
 	.compare .section-row th,
 	.compare .section-row td {
-		border-top: 2px solid rgba(255, 255, 255, 0.12);
+		border-top: 2px solid var(--borderColorSoft);
 	}
 	.compare .highlight-row td,
 	.compare .highlight-row th {
-		background: rgba(75, 192, 192, 0.08);
+		background: var(--accentSurface);
 	}
 
 	.chart-panel :global(canvas) {
