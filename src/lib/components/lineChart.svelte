@@ -7,7 +7,7 @@
 	let canvas;
 	let chart;
 	const themeStore = getContext('theme');
-	let currentTheme = $state('default');
+	let currentTheme = $state('dark');
 	let tickColor = $derived(currentTheme === 'light' ? '#000' : '#dedede');
 	let gridColor = $derived(
 		currentTheme === 'light' ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.1)'

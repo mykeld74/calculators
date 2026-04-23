@@ -7,18 +7,23 @@
 	import '$lib/css/styles.css';
 
 	let ready = $state(false);
-	const themeStore = writable('default');
+	const themeStore = writable('dark');
 	const isMobileStore = writable(false);
 
 	setContext('theme', themeStore);
 	setContext('isMobile', isMobileStore);
 
+	function normalizeTheme(theme) {
+		return theme === 'light' ? 'light' : 'dark';
+	}
+
 	function setTheme(newTheme) {
+		const normalizedTheme = normalizeTheme(newTheme);
 		const body = document.querySelector('body');
-		body.classList.remove('default', 'bp', 'glacier', 'light');
-		body.classList.add(newTheme);
-		localStorage.setItem('theme', newTheme);
-		themeStore.set(newTheme);
+		body.classList.remove('dark', 'light');
+		body.classList.add(normalizedTheme);
+		localStorage.setItem('theme', normalizedTheme);
+		themeStore.set(normalizedTheme);
 	}
 
 	let innerWidth = $state();
@@ -29,13 +34,8 @@
 
 	onMount(() => {
 		const savedTheme = localStorage.getItem('theme');
-		if (savedTheme) {
-			setTheme(savedTheme);
-			ready = true;
-		} else {
-			themeStore.set('default');
-			ready = true;
-		}
+		setTheme(savedTheme ? normalizeTheme(savedTheme) : 'dark');
+		ready = true;
 
 		// Set initial mobile state
 		isMobileStore.set(window.innerWidth <= 768);
