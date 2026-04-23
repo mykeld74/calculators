@@ -17,27 +17,54 @@ export function currentAge(scenario, now = new Date()) {
 	return age;
 }
 
-function normalizeFutureChanges(changes) {
+function monthIndexFromStartDate(startDate, now) {
+	if (typeof startDate !== 'string') return null;
+	const date = new Date(startDate);
+	if (Number.isNaN(date.getTime())) return null;
+	const nowYear = now.getFullYear();
+	const nowMonth = now.getMonth();
+	const startYear = date.getFullYear();
+	const startMonth = date.getMonth();
+	return Math.max((startYear - nowYear) * 12 + (startMonth - nowMonth), 0);
+}
+
+function normalizeFutureChanges(changes, now) {
 	if (!Array.isArray(changes)) return [];
 	return changes
 		.map((change) => {
 			const yearsFromNow = Number(change?.yearsFromNow);
+			const startDateMonthIndex = monthIndexFromStartDate(change?.startDate, now);
 			const annualSalary = Number(change?.annualSalary);
 			const contributionPercent = Number(change?.contributionPercent);
 			const changeType =
-				change?.changeType === 'salary' ||
-				change?.changeType === 'contribution' ||
-				change?.changeType === 'both'
+				change?.changeType === 'salary' || change?.changeType === 'contribution'
 					? change.changeType
-					: 'both';
+					: 'salary';
+			const recurringEnabled = Boolean(change?.recurringEnabled);
+			const recurringPercent = Number(change?.recurringPercent);
+			const recurringFrequencyMonths = Number(change?.recurringFrequencyMonths);
+			const recurringEndAfterYears = Number(change?.recurringEndAfterYears);
 
 			return {
-				monthIndex: Math.max(Math.round(yearsFromNow * 12), 0),
+				monthIndex:
+					startDateMonthIndex !== null
+						? startDateMonthIndex
+						: Math.max(Math.round(yearsFromNow * 12), 0),
 				changeType,
 				annualSalary: Number.isFinite(annualSalary) ? Math.max(annualSalary, 0) : null,
 				contributionPercent: Number.isFinite(contributionPercent)
 					? Math.min(Math.max(contributionPercent, 0), 50)
-					: null
+					: null,
+				recurringEnabled,
+				recurringPercent: Number.isFinite(recurringPercent)
+					? Math.min(Math.max(recurringPercent, -100), 100)
+					: 0,
+				recurringFrequencyMonths: Number.isFinite(recurringFrequencyMonths)
+					? Math.max(Math.round(recurringFrequencyMonths), 1)
+					: 12,
+				recurringDurationMonths: Number.isFinite(recurringEndAfterYears)
+					? Math.max(Math.round(recurringEndAfterYears * 12), 0)
+					: 0
 			};
 		})
 		.filter((change) => Number.isFinite(change.monthIndex))
@@ -51,7 +78,7 @@ export function projectBalance(s, now = new Date()) {
 	const employerPct = s.employerMatch ?? 0;
 	let annualSalary = s.annualSalary;
 	let contributionPercent = s.contributionPercent;
-	const futureChanges = normalizeFutureChanges(s.futureChanges);
+	const futureChanges = normalizeFutureChanges(s.futureChanges, now);
 	let futureChangeIndex = 0;
 
 	const computeMonthlyContributions = () => {
@@ -64,17 +91,21 @@ export function projectBalance(s, now = new Date()) {
 	};
 
 	const applyFutureChange = (change) => {
-		if (
-			(change.changeType === 'salary' || change.changeType === 'both') &&
-			change.annualSalary !== null
-		) {
+		if (change.changeType === 'salary' && change.annualSalary !== null) {
 			annualSalary = change.annualSalary;
 		}
-		if (
-			(change.changeType === 'contribution' || change.changeType === 'both') &&
-			change.contributionPercent !== null
-		) {
+		if (change.changeType === 'contribution' && change.contributionPercent !== null) {
 			contributionPercent = change.contributionPercent;
+		}
+	};
+
+	const applyRecurringFutureChange = (change) => {
+		const multiplier = 1 + change.recurringPercent / 100;
+		if (change.changeType === 'salary') {
+			annualSalary = Math.max(annualSalary * multiplier, 0);
+		}
+		if (change.changeType === 'contribution') {
+			contributionPercent = Math.min(Math.max(contributionPercent * multiplier, 0), 50);
 		}
 	};
 
@@ -119,8 +150,19 @@ export function projectBalance(s, now = new Date()) {
 			futureChangeIndex < futureChanges.length &&
 			futureChanges[futureChangeIndex].monthIndex === i - 1
 		) {
-			applyFutureChange(futureChanges[futureChangeIndex]);
+			const change = futureChanges[futureChangeIndex];
+			if (change.recurringEnabled) applyRecurringFutureChange(change);
+			else applyFutureChange(change);
 			futureChangeIndex++;
+		}
+
+		for (const change of futureChanges) {
+			if (!change.recurringEnabled) continue;
+			const monthOffset = i - 1 - change.monthIndex;
+			if (monthOffset <= 0) continue;
+			if (monthOffset > change.recurringDurationMonths) continue;
+			if (monthOffset % change.recurringFrequencyMonths !== 0) continue;
+			applyRecurringFutureChange(change);
 		}
 
 		const { monthlyContribution } = computeMonthlyContributions();

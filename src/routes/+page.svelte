@@ -18,10 +18,57 @@
 	};
 
 	const FUTURE_CHANGE_TYPE_OPTIONS = [
-		{ value: 'both', label: 'Salary + Contribution' },
-		{ value: 'salary', label: 'Salary only' },
-		{ value: 'contribution', label: 'Contribution only' }
+		{ value: 'salary', label: 'Salary' },
+		{ value: 'contribution', label: 'Contribution' }
 	];
+	const RECURRING_FREQUENCY_OPTIONS = [
+		{ value: 1, label: 'Monthly' },
+		{ value: 3, label: 'Quarterly' },
+		{ value: 6, label: 'Every 6 months' },
+		{ value: 12, label: 'Annually' }
+	];
+
+	function toInputDateString(date) {
+		const year = date.getFullYear();
+		const month = String(date.getMonth() + 1).padStart(2, '0');
+		const day = String(date.getDate()).padStart(2, '0');
+		return `${year}-${month}-${day}`;
+	}
+
+	function dateFromInputString(inputDate, fallbackDate = new Date()) {
+		if (typeof inputDate !== 'string') return fallbackDate;
+		const date = new Date(inputDate);
+		return Number.isNaN(date.getTime()) ? fallbackDate : date;
+	}
+
+	function addYearsToDate(inputDate, years) {
+		const date = new Date(inputDate);
+		date.setFullYear(date.getFullYear() + years);
+		return date;
+	}
+
+	function defaultFutureChangeStartDate() {
+		return toInputDateString(addYearsToDate(new Date(), 1));
+	}
+
+	function startDateFromChange(change, fallbackDate = new Date()) {
+		if (typeof change?.startDate === 'string') {
+			const parsed = new Date(change.startDate);
+			if (!Number.isNaN(parsed.getTime())) return toInputDateString(parsed);
+		}
+		const yearsFromNow = Number(change?.yearsFromNow);
+		if (!Number.isFinite(yearsFromNow)) return defaultFutureChangeStartDate();
+		const nextDate = addYearsToDate(fallbackDate, yearsFromNow);
+		return toInputDateString(nextDate);
+	}
+
+	function startMonthOffset(change, now = new Date()) {
+		const startDate = dateFromInputString(change?.startDate, now);
+		return Math.max(
+			(startDate.getFullYear() - now.getFullYear()) * 12 + (startDate.getMonth() - now.getMonth()),
+			0
+		);
+	}
 
 	function makeDefaults(overrides = {}) {
 		return {
@@ -59,24 +106,35 @@
 	let hydrated = $state(false);
 
 	function normalizeFutureChange(change, fallbackId) {
-		const yearsFromNow = Number(change?.yearsFromNow);
+		const startDate = startDateFromChange(change);
 		const annualSalary = Number(change?.annualSalary);
 		const contributionPercent = Number(change?.contributionPercent);
 		const changeType =
-			change?.changeType === 'salary' ||
-			change?.changeType === 'contribution' ||
-			change?.changeType === 'both'
+			change?.changeType === 'salary' || change?.changeType === 'contribution'
 				? change.changeType
-				: 'both';
+				: 'salary';
+		const recurringPercent = Number(change?.recurringPercent);
+		const recurringFrequencyMonths = Number(change?.recurringFrequencyMonths);
+		const recurringEndAfterYears = Number(change?.recurringEndAfterYears);
 
 		return {
 			id: Number.isInteger(change?.id) ? change.id : fallbackId,
-			yearsFromNow: Number.isFinite(yearsFromNow) ? Math.max(0, Math.round(yearsFromNow)) : 1,
+			startDate,
 			changeType,
 			annualSalary: Number.isFinite(annualSalary) ? Math.max(0, annualSalary) : 0,
 			contributionPercent: Number.isFinite(contributionPercent)
 				? Math.min(Math.max(contributionPercent, 0), 50)
-				: 0
+				: 0,
+			recurringEnabled: Boolean(change?.recurringEnabled),
+			recurringPercent: Number.isFinite(recurringPercent)
+				? Math.min(Math.max(recurringPercent, -100), 100)
+				: 3.5,
+			recurringFrequencyMonths: Number.isFinite(recurringFrequencyMonths)
+				? Math.max(Math.round(recurringFrequencyMonths), 1)
+				: 12,
+			recurringEndAfterYears: Number.isFinite(recurringEndAfterYears)
+				? Math.max(Math.round(recurringEndAfterYears), 0)
+				: 3
 		};
 	}
 
@@ -261,10 +319,14 @@
 		if (!Array.isArray(scenario.futureChanges)) scenario.futureChanges = [];
 		scenario.futureChanges.push({
 			id: nextFutureChangeId++,
-			yearsFromNow: 1,
-			changeType: 'both',
+			startDate: defaultFutureChangeStartDate(),
+			changeType: 'salary',
 			annualSalary: scenario.annualSalary,
-			contributionPercent: scenario.contributionPercent
+			contributionPercent: scenario.contributionPercent,
+			recurringEnabled: false,
+			recurringPercent: 3.5,
+			recurringFrequencyMonths: 12,
+			recurringEndAfterYears: 3
 		});
 	}
 
@@ -277,6 +339,34 @@
 	function updateFutureChangeCurrency(change, key, value) {
 		if (!change) return;
 		change[key] = parseUsdInput(value);
+	}
+
+	function formatChangeTypeLabel(changeType) {
+		if (changeType === 'salary') return 'salary';
+		return 'contribution';
+	}
+
+	function recurringFrequencyLabel(months) {
+		const normalizedMonths = Number(months);
+		const match = RECURRING_FREQUENCY_OPTIONS.find((option) => option.value === normalizedMonths);
+		return match ? match.label.toLowerCase() : `every ${normalizedMonths} months`;
+	}
+
+	function changePreview(change) {
+		const startDate = dateFromInputString(change?.startDate);
+		const startLabel = startDate.toLocaleDateString('en-US', {
+			month: 'short',
+			day: 'numeric',
+			year: 'numeric'
+		});
+		const target = formatChangeTypeLabel(change?.changeType);
+		if (change?.recurringEnabled) {
+			const adjustment = Number(change?.recurringPercent) || 0;
+			const sign = adjustment >= 0 ? '+' : '';
+			const endYears = Math.max(Number(change?.recurringEndAfterYears) || 0, 0);
+			return `Starts ${startLabel}: ${sign}${adjustment}% ${target} ${recurringFrequencyLabel(change?.recurringFrequencyMonths)} for ${endYears} year${endYears === 1 ? '' : 's'}.`;
+		}
+		return `One-time ${target} change on ${startLabel}.`;
 	}
 
 	function adjustWithdrawalRateToLifeExpectancy(s) {
@@ -348,12 +438,13 @@
 			});
 		}
 		for (const change of activeScenario.futureChanges ?? []) {
-			const monthsFromNow = Math.max(Math.round((change.yearsFromNow ?? 0) * 12), 0);
+			const monthsFromNow = startMonthOffset(change, now);
 			if (monthsFromNow <= 0) continue;
 			const changeDate = new Date(now.getFullYear(), now.getMonth() + monthsFromNow, 1).getTime();
+			const startDate = dateFromInputString(change?.startDate, now);
 			markers.push({
 				x: changeDate,
-				label: `Change (${change.yearsFromNow}y)`,
+				label: `${change.recurringEnabled ? 'Recurring change' : 'Change'} (${startDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })})`,
 				color: 'rgba(160,200,255,0.7)',
 				dash: [2, 3]
 			});
@@ -585,54 +676,122 @@
 						<div class="future-changes-list">
 							{#each activeScenario.futureChanges as change (change.id)}
 								<div class="future-change-row">
-									<div class="field">
-										<label for={`change-years-${change.id}`}>After Years</label>
-										<input
-											type="number"
-											id={`change-years-${change.id}`}
-											bind:value={change.yearsFromNow}
-											min="0"
-											max="60"
-											step="1"
-										/>
-									</div>
-									<div class="field">
-										<label for={`change-type-${change.id}`}>Change Type</label>
-										<select id={`change-type-${change.id}`} bind:value={change.changeType}>
-											{#each FUTURE_CHANGE_TYPE_OPTIONS as option}
-												<option value={option.value}>{option.label}</option>
-											{/each}
-										</select>
-									</div>
-									{#if change.changeType === 'salary' || change.changeType === 'both'}
-										<div class="field">
-											<label for={`change-salary-${change.id}`}>Annual Salary</label>
+									<div class="future-change-top">
+										<div class="field future-change-startDate">
+											<label for={`change-startDate-${change.id}`}>Start Date</label>
 											<input
-												type="text"
-												id={`change-salary-${change.id}`}
-												inputmode="numeric"
-												value={formatUsdInput(change.annualSalary)}
-												oninput={(e) =>
-													updateFutureChangeCurrency(change, 'annualSalary', e.currentTarget.value)}
+												type="date"
+												id={`change-startDate-${change.id}`}
+												bind:value={change.startDate}
 											/>
 										</div>
-									{/if}
-									{#if change.changeType === 'contribution' || change.changeType === 'both'}
-										<div class="field">
-											<div class="field-head">
-												<label for={`change-contribution-${change.id}`}>Contribution</label>
-												<span class="field-value">{change.contributionPercent}%</span>
+										{#if change.recurringEnabled}
+											<div class="field future-change-end-years">
+												<label for={`change-end-years-${change.id}`}>End After (years)</label>
+												<input
+													type="number"
+													id={`change-end-years-${change.id}`}
+													bind:value={change.recurringEndAfterYears}
+													min="0"
+													max="40"
+													step="1"
+												/>
 											</div>
-											<NumberOrRange
-												id={`change-contribution-${change.id}`}
-												bind:value={change.contributionPercent}
-												min="0"
-												max="50"
-												step="0.5"
-											/>
+										{/if}
+										<div class="field checkbox-field future-change-recurring">
+											<label for={`change-recurring-enabled-${change.id}`}>
+												<input
+													type="checkbox"
+													id={`change-recurring-enabled-${change.id}`}
+													bind:checked={change.recurringEnabled}
+												/>
+												Recurring
+											</label>
 										</div>
-									{/if}
-									<div class="field action-field">
+									</div>
+									<div class="future-change-type-row">
+										<div class="field future-change-type">
+											<div class="field-label">Change Type</div>
+											<div class="change-type-radios" role="radiogroup" aria-label="Change type">
+												{#each FUTURE_CHANGE_TYPE_OPTIONS as option}
+													<label
+														class="change-type-radio"
+														for={`change-type-${change.id}-${option.value}`}
+													>
+														<input
+															type="radio"
+															id={`change-type-${change.id}-${option.value}`}
+															name={`change-type-${change.id}`}
+															value={option.value}
+															bind:group={change.changeType}
+														/>
+														<span>{option.label}</span>
+													</label>
+												{/each}
+											</div>
+										</div>
+									</div>
+									<div class="future-change-details">
+										{#if change.recurringEnabled}
+											<div class="field">
+												<div class="field-head">
+													<label for={`change-recurring-percent-${change.id}`}>Adjustment</label>
+													<span class="field-value">{change.recurringPercent}%</span>
+												</div>
+												<NumberOrRange
+													id={`change-recurring-percent-${change.id}`}
+													bind:value={change.recurringPercent}
+													min="-100"
+													max="100"
+													step="0.1"
+												/>
+											</div>
+											<div class="field">
+												<label for={`change-frequency-${change.id}`}>Frequency</label>
+												<select
+													id={`change-frequency-${change.id}`}
+													bind:value={change.recurringFrequencyMonths}
+												>
+													{#each RECURRING_FREQUENCY_OPTIONS as option}
+														<option value={option.value}>{option.label}</option>
+													{/each}
+												</select>
+											</div>
+										{:else if change.changeType === 'salary'}
+											<div class="field">
+												<label for={`change-salary-${change.id}`}>Annual Salary</label>
+												<input
+													type="text"
+													id={`change-salary-${change.id}`}
+													inputmode="numeric"
+													value={formatUsdInput(change.annualSalary)}
+													oninput={(e) =>
+														updateFutureChangeCurrency(
+															change,
+															'annualSalary',
+															e.currentTarget.value
+														)}
+												/>
+											</div>
+										{/if}
+										{#if !change.recurringEnabled && change.changeType === 'contribution'}
+											<div class="field">
+												<div class="field-head">
+													<label for={`change-contribution-${change.id}`}>Contribution</label>
+													<span class="field-value">{change.contributionPercent}%</span>
+												</div>
+												<NumberOrRange
+													id={`change-contribution-${change.id}`}
+													bind:value={change.contributionPercent}
+													min="0"
+													max="50"
+													step="0.5"
+												/>
+											</div>
+										{/if}
+									</div>
+									<div class="future-change-footer">
+										<div class="future-change-preview">{changePreview(change)}</div>
 										<button
 											type="button"
 											class="remove-btn"
@@ -1156,12 +1315,15 @@
 	.field-wide {
 		width: 100%;
 	}
-	.field label {
+	.field label,
+	.field-label {
 		font-size: 1rem;
 		font-weight: 500;
 		opacity: 0.9;
 	}
 	.field input[type='text'],
+	.field input[type='number'],
+	.field input[type='date'],
 	.field select {
 		height: 2.6rem;
 		font-size: 1.1rem;
@@ -1201,14 +1363,105 @@
 		gap: 0.75rem;
 	}
 	.future-change-row {
+		display: flex;
+		flex-direction: column;
+		gap: 0.9rem;
+		padding: 1rem;
+		border: 1px solid rgba(255, 255, 255, 0.12);
+		background: rgba(255, 255, 255, 0.03);
+		border-radius: 10px;
+		box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+	}
+	.future-change-top {
 		display: grid;
-		grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+		grid-template-columns: minmax(170px, 220px) minmax(170px, 220px) auto;
 		gap: 0.85rem;
-		padding: 0.75rem;
-		border: 1px solid var(--borderColorSoft);
-		border-radius: 8px;
+		align-items: end;
+		@container (max-width: 980px) {
+			grid-template-columns: 1fr;
+			align-items: stretch;
+		}
+	}
+	.future-change-startDate {
+		max-width: 220px;
+		@container (max-width: 980px) {
+			max-width: none;
+		}
+	}
+	.future-change-end-years {
+		max-width: 220px;
+		@container (max-width: 980px) {
+			max-width: none;
+		}
+	}
+	.future-change-type {
+		min-width: 0;
+	}
+	.future-change-type-row {
+		display: grid;
+		grid-template-columns: 1fr;
+	}
+	.future-change-details {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 0.85rem;
 		@container (max-width: 800px) {
 			grid-template-columns: 1fr;
+		}
+	}
+	.future-change-preview {
+		padding: 0.55rem 0.65rem;
+		border: 1px dashed var(--borderColorSoft);
+		border-radius: 8px;
+		font-size: 0.88rem;
+		opacity: 0.85;
+		background: rgba(255, 255, 255, 0.02);
+		flex: 1;
+	}
+	.change-type-radios {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem 0.6rem;
+	}
+	.change-type-radio {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		padding: 0.45rem 0.65rem;
+		border: 1px solid var(--borderColorSoft);
+		border-radius: 999px;
+		cursor: pointer;
+		font-size: 0.9rem;
+		background: rgba(255, 255, 255, 0.02);
+	}
+	.change-type-radio input[type='radio'] {
+		width: 1rem;
+		height: 1rem;
+		margin: 0;
+	}
+	.future-change-recurring {
+		justify-content: flex-end;
+		align-items: flex-end;
+		min-width: 0;
+		@container (max-width: 980px) {
+			align-items: flex-start;
+		}
+	}
+	.future-change-recurring label {
+		height: 2.6rem;
+		padding: 0 0.75rem;
+		border: 1px solid var(--borderColorSoft);
+		border-radius: 8px;
+		background: rgba(255, 255, 255, 0.02);
+	}
+	.future-change-footer {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		justify-content: space-between;
+		@container (max-width: 800px) {
+			flex-direction: column;
+			align-items: stretch;
 		}
 	}
 	.action-field {
