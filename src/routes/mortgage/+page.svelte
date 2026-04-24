@@ -1023,24 +1023,6 @@
 						{/if}
 					</tr>
 					<tr>
-						<td>PMI End Date:</td>
-						<td>{formatCompletionDate(baselinePmiEndDate)}</td>
-						{#if hasExtraScenario}
-							<td>{formatCompletionDate(extraPmiEndDate)}</td>
-							<td>
-								{#if baselinePmiEndDate && extraPmiEndDate}
-									{Math.max(
-										(baselinePmiEndDate.getFullYear() - extraPmiEndDate.getFullYear()) * 12 +
-											(baselinePmiEndDate.getMonth() - extraPmiEndDate.getMonth()),
-										0
-									)} months earlier
-								{:else}
-									--
-								{/if}
-							</td>
-						{/if}
-					</tr>
-					<tr>
 						<td>Total P&I Paid:</td>
 						<td>
 							{totalAmountPaid.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}
