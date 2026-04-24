@@ -11,6 +11,7 @@
 	let extraPaymentScenarios = $state([]);
 	let nextExtraPaymentScenarioId = 1;
 	let activeExtraScenarioId = $state(null);
+	let draggingScenarioId = $state(null);
 	const recurringFrequencyOptions = [
 		{ value: 1, label: 'Monthly' },
 		{ value: 3, label: 'Quarterly' },
@@ -225,6 +226,23 @@
 		if (activeExtraScenarioId === id) {
 			activeExtraScenarioId = extraPaymentScenarios[0]?.id ?? null;
 		}
+	}
+	function handleScenarioDragStart(scenarioId) {
+		draggingScenarioId = scenarioId;
+	}
+	function handleScenarioDragOver(event) {
+		event.preventDefault();
+	}
+	function handleScenarioDrop(targetScenarioId) {
+		if (draggingScenarioId === null || draggingScenarioId === targetScenarioId) return;
+		const sourceIdx = extraPaymentScenarios.findIndex((scenario) => scenario.id === draggingScenarioId);
+		const targetIdx = extraPaymentScenarios.findIndex((scenario) => scenario.id === targetScenarioId);
+		if (sourceIdx < 0 || targetIdx < 0) return;
+		const [draggedScenario] = extraPaymentScenarios.splice(sourceIdx, 1);
+		extraPaymentScenarios.splice(targetIdx, 0, draggedScenario);
+	}
+	function handleScenarioDragEnd() {
+		draggingScenarioId = null;
 	}
 	function addOneTimePayment(scenario) {
 		scenario.oneTimePayments.push({
@@ -754,8 +772,20 @@
 				<legend>Extra Payments</legend>
 				<div class="scenarioList">
 					{#each extraPaymentScenarios as scenario (scenario.id)}
-						<div class="scenarioCard">
+						<div
+							class="scenarioCard"
+							class:isDragging={draggingScenarioId === scenario.id}
+							role="listitem"
+							draggable="true"
+							ondragstart={() => handleScenarioDragStart(scenario.id)}
+							ondragover={handleScenarioDragOver}
+							ondrop={() => handleScenarioDrop(scenario.id)}
+							ondragend={handleScenarioDragEnd}
+						>
 							<div class="scenarioCardHeader">
+								<button type="button" class="dragHandleButton" aria-label="Drag to reorder scenario">
+									:::
+								</button>
 								<input type="text" bind:value={scenario.name} class="scenarioNameInput" />
 								<div class="scenarioCardActions">
 									<button
@@ -1200,12 +1230,26 @@
 		border-radius: 8px;
 		padding: 1rem;
 	}
+	.scenarioCard.isDragging {
+		opacity: 0.55;
+		border-color: var(--accentColor);
+	}
 	.scenarioCardHeader {
 		display: flex;
 		gap: 0.75rem;
 		align-items: center;
 		justify-content: space-between;
 		margin-bottom: 0.75rem;
+	}
+	.dragHandleButton {
+		background: transparent;
+		color: var(--fontColor);
+		border: 1px dashed var(--borderColor);
+		border-radius: 6px;
+		padding: 0.2rem 0.45rem;
+		cursor: grab;
+		font-size: 0.9rem;
+		line-height: 1;
 	}
 	.scenarioNameInput {
 		flex: 1;

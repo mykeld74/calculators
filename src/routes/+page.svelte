@@ -1,5 +1,6 @@
 <script>
 	import { LineChart, NumberOrRange } from '$lib';
+	import { flip } from 'svelte/animate';
 	import { onMount } from 'svelte';
 	import { currentAge, computeResults, calculateSuggestedWithdrawalRate } from '$lib/retirement.js';
 
@@ -101,6 +102,7 @@
 		{ id: 2, label: 'Retire at 67', ...makeDefaults({ retirementAge: 67, monthlySS: 3468 }) }
 	]);
 	let activeScenarioId = $state(1);
+let draggingScenarioId = $state(null);
 	let nextId = 3;
 	let nextFutureChangeId = 1;
 	let hydrated = $state(false);
@@ -473,6 +475,23 @@
 		scenarios.splice(idx, 1);
 		if (activeScenarioId === id) activeScenarioId = scenarios[0].id;
 	}
+function handleScenarioTabDragStart(scenarioId) {
+	draggingScenarioId = scenarioId;
+}
+function handleScenarioTabDragOver(event) {
+	event.preventDefault();
+}
+function handleScenarioTabDrop(targetScenarioId) {
+	if (draggingScenarioId === null || draggingScenarioId === targetScenarioId) return;
+	const sourceIdx = scenarios.findIndex((scenario) => scenario.id === draggingScenarioId);
+	const targetIdx = scenarios.findIndex((scenario) => scenario.id === targetScenarioId);
+	if (sourceIdx < 0 || targetIdx < 0) return;
+	const [draggedScenario] = scenarios.splice(sourceIdx, 1);
+	scenarios.splice(targetIdx, 0, draggedScenario);
+}
+function handleScenarioTabDragEnd() {
+	draggingScenarioId = null;
+}
 
 	function resetAll() {
 		if (!confirm('Reset all scenarios to defaults?')) return;
@@ -510,8 +529,15 @@
 						role="tab"
 						class="tab"
 						class:active={scenario.id === activeScenarioId}
+						class:isDragging={draggingScenarioId === scenario.id}
 						style:--swatch={PALETTE[idx % PALETTE.length]}
 						onclick={() => (activeScenarioId = scenario.id)}
+						draggable="true"
+						ondragstart={() => handleScenarioTabDragStart(scenario.id)}
+						ondragover={handleScenarioTabDragOver}
+						ondrop={() => handleScenarioTabDrop(scenario.id)}
+						ondragend={handleScenarioTabDragEnd}
+						animate:flip={{ duration: 220, easing: (t) => t }}
 					>
 						<span class="swatch"></span>
 						{scenario.label}
@@ -1527,8 +1553,13 @@
 		border: 1px solid var(--borderColor);
 		padding: 0.6rem 1.2rem;
 		border-radius: 6px;
-		cursor: pointer;
+		cursor: grab;
 		font-size: 1rem;
+	}
+	.tab.isDragging {
+		opacity: 0.55;
+		border-style: dashed;
+		cursor: grabbing;
 	}
 	.tab.active {
 		background: var(--fontColor);
