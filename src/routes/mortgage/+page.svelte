@@ -8,9 +8,9 @@
 	let loanAmount = $derived(Math.max(0, principal - downPayment));
 	let interestRate = $state(2.625);
 	let years = $state(20);
-	let extraMonthlyPayment = $state(0);
-	let oneTimePayments = $state([]);
-	let nextOneTimePaymentId = 1;
+	let extraPaymentScenarios = $state([]);
+	let nextExtraPaymentScenarioId = 1;
+	let activeExtraScenarioId = $state(null);
 	const recurringFrequencyOptions = [
 		{ value: 1, label: 'Monthly' },
 		{ value: 3, label: 'Quarterly' },
@@ -19,10 +19,14 @@
 	];
 	const recurringFrequencyValues = recurringFrequencyOptions.map((option) => option.value);
 	let hydrated = $state(false);
-	let annualTaxes = $state(3230);
-	let monthlyTaxes = $derived(annualTaxes / 12);
-	let annualInsurance = $state(2860);
-	let monthlyInsurance = $derived(annualInsurance / 12);
+	let monthlyEscrowPayment = $state(508);
+	let monthlyAssistance = $state(0);
+	let assistanceEditValue = $state('');
+	let assistanceInputFocused = $state(false);
+	let pmiInputMode = $state('dollar');
+	let pmiRate = $state(0.5);
+	let pmiDollarAmount = $state(0);
+	const pmiLtvThreshold = 0.8;
 	let loanOriginationDate = $state();
 	let baselinePayments = $derived.by(() =>
 		calculateMonthlyPayment(loanAmount, interestRate, years, 0)
@@ -31,34 +35,86 @@
 		const parsedStartDate = new Date(loanOriginationDate);
 		return Number.isNaN(parsedStartDate.getTime()) ? new Date() : parsedStartDate;
 	});
-	let payments = $derived.by(() =>
-		calculateMonthlyPayment(
-			loanAmount,
-			interestRate,
-			years,
-			extraMonthlyPayment,
-			startDate,
-			oneTimePayments
-		)
+	let extraScenarioSummaries = $derived.by(() =>
+		extraPaymentScenarios.map((scenario) => {
+			const scenarioPayments = calculateMonthlyPayment(
+				loanAmount,
+				interestRate,
+				years,
+				scenario.extraMonthlyPayment,
+				startDate,
+				scenario.oneTimePayments
+			);
+			const totalInterest = scenarioPayments[scenarioPayments.length - 1]?.totalInterest ?? 0;
+			const totalAmountPaid = loanAmount + totalInterest;
+			const completionMonth = scenarioPayments[scenarioPayments.length - 1]?.month;
+			const completionDate = getCompletionDate(startDate, completionMonth);
+			const pmiEndMonth = getPmiEndMonth(scenarioPayments, loanAmount, principal, pmiLtvThreshold);
+			const pmiEndDate = getCompletionDate(startDate, pmiEndMonth);
+			const totalMonthlyPayment = Math.max(
+				0,
+				(scenarioPayments[0]?.payment || 0) + monthlyEscrowPayment + baselineMonthlyPmi - monthlyAssistance
+			);
+			return {
+				id: scenario.id,
+				name: scenario.name,
+				payments: scenarioPayments,
+				totalInterest,
+				totalAmountPaid,
+				completionDate,
+				pmiEndDate,
+				totalMonthlyPayment
+			};
+		})
 	);
-	let hasOneTimePayments = $derived(
-		oneTimePayments.some(
-			(payment) => Number(payment.amount) > 0 && !Number.isNaN(new Date(payment.date).getTime())
-		)
-	);
-	let hasExtraScenario = $derived(extraMonthlyPayment > 0 || hasOneTimePayments);
+	let activeExtraScenarioSummary = $derived.by(() => {
+		if (extraScenarioSummaries.length === 0) return null;
+		return (
+			extraScenarioSummaries.find((scenario) => scenario.id === Number(activeExtraScenarioId)) ??
+			extraScenarioSummaries[0]
+		);
+	});
+	let hasExtraScenario = $derived(extraScenarioSummaries.length > 0);
 	let baselineTotalInterest = $derived(
 		baselinePayments[baselinePayments.length - 1]?.totalInterest ?? 0
 	);
-	let extraTotalInterest = $derived(payments[payments.length - 1]?.totalInterest ?? 0);
+	let extraTotalInterest = $derived(activeExtraScenarioSummary?.totalInterest ?? 0);
 	let totalAmountPaid = $derived(loanAmount + baselineTotalInterest);
-	let totalNumberOfPayments = $derived(payments.length);
-	let totalAmountPaidWithExtra = $derived(loanAmount + extraTotalInterest);
+	let totalNumberOfPayments = $derived(activeExtraScenarioSummary?.payments.length ?? 0);
+	let totalAmountPaidWithExtra = $derived(activeExtraScenarioSummary?.totalAmountPaid ?? loanAmount);
 	let baselineCompletionDate = $derived.by(() =>
 		getCompletionDate(startDate, baselinePayments[baselinePayments.length - 1]?.month)
 	);
-	let extraCompletionDate = $derived.by(() =>
-		getCompletionDate(startDate, payments[payments.length - 1]?.month)
+	let extraCompletionDate = $derived.by(() => activeExtraScenarioSummary?.completionDate ?? null);
+	let baselineMonthlyPmi = $derived.by(() =>
+		calculateMonthlyPmi(loanAmount, principal, pmiInputMode, pmiRate, pmiDollarAmount)
+	);
+	let extraMonthlyPmi = $derived.by(() =>
+		calculateMonthlyPmi(loanAmount, principal, pmiInputMode, pmiRate, pmiDollarAmount)
+	);
+	let baselinePmiEndMonth = $derived.by(() =>
+		getPmiEndMonth(baselinePayments, loanAmount, principal, pmiLtvThreshold)
+	);
+	let extraPmiEndMonth = $derived.by(() => null);
+	let baselinePmiEndDate = $derived.by(() => getCompletionDate(startDate, baselinePmiEndMonth));
+	let extraPmiEndDate = $derived.by(() => activeExtraScenarioSummary?.pmiEndDate ?? null);
+	let baselineTotalMonthlyPayment = $derived.by(() =>
+		Math.max(
+			0,
+			(baselinePayments[0]?.payment || 0) + monthlyEscrowPayment + baselineMonthlyPmi - monthlyAssistance
+		)
+	);
+	let extraTotalMonthlyPayment = $derived.by(() =>
+		Math.max(
+			0,
+			(activeExtraScenarioSummary?.payments[0]?.payment || 0) +
+				monthlyEscrowPayment +
+				extraMonthlyPmi -
+				monthlyAssistance
+		)
+	);
+	let assistanceInputValue = $derived.by(() =>
+		assistanceInputFocused ? assistanceEditValue : formatUsdInput(monthlyAssistance, 2)
 	);
 	let baselineChartPoints = $derived.by(() => {
 		return baselinePayments
@@ -69,7 +125,7 @@
 			.filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
 	});
 	let extraChartPoints = $derived.by(() => {
-		return payments
+		return (activeExtraScenarioSummary?.payments ?? [])
 			.map((payment) => ({
 				x: new Date(startDate.getFullYear(), startDate.getMonth() + (payment.month - 1)).getTime(),
 				y: +payment.remainingBalance.toFixed(2)
@@ -85,23 +141,30 @@
 				fill: false
 			}
 		];
-		if (hasExtraScenario) {
+		extraScenarioSummaries.forEach((scenario, idx) => {
+			const colors = ['#4bc0c0', '#ff9f40', '#9966ff', '#ff6384', '#36a2eb', '#ffce56'];
+			const scenarioPoints = scenario.payments
+				.map((payment) => ({
+					x: new Date(startDate.getFullYear(), startDate.getMonth() + (payment.month - 1)).getTime(),
+					y: +payment.remainingBalance.toFixed(2)
+				}))
+				.filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
 			datasets.push({
-				label: 'Remaining Balance (With Extra)',
-				data: extraChartPoints,
-				color: '#4bc0c0',
+				label: `Remaining Balance (${scenario.name})`,
+				data: scenarioPoints,
+				color: colors[idx % colors.length],
 				fill: false
 			});
-		}
+		});
 		return datasets;
 	});
-	function formatUsdInput(value) {
+	function formatUsdInput(value, maximumFractionDigits = 0) {
 		const numericValue = Number(value);
 		const safeValue = Number.isFinite(numericValue) ? Math.max(0, numericValue) : 0;
 		return safeValue.toLocaleString('en-US', {
 			style: 'currency',
 			currency: 'USD',
-			maximumFractionDigits: 0
+			maximumFractionDigits
 		});
 	}
 	function parseUsdInput(value) {
@@ -124,9 +187,32 @@
 	function monthKey(date) {
 		return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 	}
-	function addOneTimePayment() {
-		oneTimePayments.push({
-			id: nextOneTimePaymentId++,
+	function createExtraPaymentScenario(name = '') {
+		const scenarioId = nextExtraPaymentScenarioId++;
+		return {
+			id: scenarioId,
+			name: name || `Scenario ${scenarioId}`,
+			extraMonthlyPayment: 0,
+			oneTimePayments: [],
+			nextOneTimePaymentId: 1
+		};
+	}
+	function addExtraPaymentScenario() {
+		const scenario = createExtraPaymentScenario();
+		extraPaymentScenarios.push(scenario);
+		activeExtraScenarioId = scenario.id;
+	}
+	function removeExtraPaymentScenario(id) {
+		const idx = extraPaymentScenarios.findIndex((scenario) => scenario.id === id);
+		if (idx < 0) return;
+		extraPaymentScenarios.splice(idx, 1);
+		if (activeExtraScenarioId === id) {
+			activeExtraScenarioId = extraPaymentScenarios[0]?.id ?? null;
+		}
+	}
+	function addOneTimePayment(scenario) {
+		scenario.oneTimePayments.push({
+			id: scenario.nextOneTimePaymentId++,
 			date: loanOriginationDate || new Date().toISOString().split('T')[0],
 			amount: 0,
 			recurringEnabled: false,
@@ -134,9 +220,9 @@
 			recurringEndDate: ''
 		});
 	}
-	function removeOneTimePayment(id) {
-		const idx = oneTimePayments.findIndex((payment) => payment.id === id);
-		if (idx >= 0) oneTimePayments.splice(idx, 1);
+	function removeOneTimePayment(scenario, id) {
+		const idx = scenario.oneTimePayments.findIndex((payment) => payment.id === id);
+		if (idx >= 0) scenario.oneTimePayments.splice(idx, 1);
 	}
 	function updatePrincipalInput(rawValue) {
 		principal = parseUsdInput(rawValue);
@@ -146,17 +232,85 @@
 		downPayment = parseUsdInput(rawValue);
 		updateDownPaymentPercentage();
 	}
-	function updateExtraMonthlyPaymentInput(rawValue) {
-		extraMonthlyPayment = parseUsdInput(rawValue);
+	function updateExtraMonthlyPaymentInput(scenario, rawValue) {
+		scenario.extraMonthlyPayment = parseUsdInput(rawValue);
 	}
-	function updateAnnualTaxesInput(rawValue) {
-		annualTaxes = parseUsdInput(rawValue);
+	function updateMonthlyEscrowPaymentInput(rawValue) {
+		monthlyEscrowPayment = parseUsdInput(rawValue);
 	}
-	function updateAnnualInsuranceInput(rawValue) {
-		annualInsurance = parseUsdInput(rawValue);
+	function updateMonthlyAssistanceInput(rawValue) {
+		assistanceEditValue = rawValue;
+		monthlyAssistance = parseUsdInput(rawValue);
+	}
+	function handleAssistanceFocus() {
+		assistanceInputFocused = true;
+		assistanceEditValue = monthlyAssistance.toFixed(2);
+	}
+	function handleAssistanceBlur() {
+		assistanceInputFocused = false;
+		assistanceEditValue = '';
+	}
+	function updatePmiRateInput(rawValue) {
+		const parsedValue = Number(rawValue);
+		pmiRate = Number.isFinite(parsedValue) ? Math.max(0, parsedValue) : 0;
 	}
 	function updateOneTimePaymentAmount(payment, rawValue) {
 		payment.amount = parseUsdInput(rawValue);
+	}
+	function normalizeExtraPaymentScenario(scenario, fallbackId) {
+		const normalizedScenario = {
+			id: Number.isInteger(scenario?.id) ? scenario.id : fallbackId,
+			name:
+				typeof scenario?.name === 'string' && scenario.name.trim() !== ''
+					? scenario.name.trim()
+					: `Scenario ${fallbackId}`,
+			extraMonthlyPayment: parseUsdInput(scenario?.extraMonthlyPayment),
+			oneTimePayments: Array.isArray(scenario?.oneTimePayments)
+				? scenario.oneTimePayments.map((payment, idx) => normalizeOneTimePayment(payment, idx + 1))
+				: [],
+			nextOneTimePaymentId: 1
+		};
+		normalizedScenario.nextOneTimePaymentId =
+			Math.max(0, ...normalizedScenario.oneTimePayments.map((payment) => Number(payment.id) || 0)) + 1;
+		return normalizedScenario;
+	}
+	function calculateMonthlyPmi(currentBalance, propertyValue, pmiMode, annualPmiRate, monthlyPmiAmount) {
+		const safePropertyValue = Number(propertyValue);
+		const safeBalance = Number(currentBalance);
+		const safeAnnualPmiRate = Number(annualPmiRate);
+		const safeMonthlyPmiAmount = Number(monthlyPmiAmount);
+		if (
+			!Number.isFinite(safePropertyValue) ||
+			!Number.isFinite(safeBalance) ||
+			safePropertyValue <= 0 ||
+			safeBalance <= 0
+		) {
+			return 0;
+		}
+		const loanToValue = safeBalance / safePropertyValue;
+		if (loanToValue <= pmiLtvThreshold) return 0;
+		if (pmiMode === 'dollar') {
+			return Number.isFinite(safeMonthlyPmiAmount) ? Math.max(0, safeMonthlyPmiAmount) : 0;
+		}
+		if (!Number.isFinite(safeAnnualPmiRate) || safeAnnualPmiRate <= 0) return 0;
+		return (safeBalance * (safeAnnualPmiRate / 100)) / 12;
+	}
+	function getPmiEndMonth(paymentSchedule, startingLoanAmount, propertyValue, ltvThreshold) {
+		if (!Array.isArray(paymentSchedule) || paymentSchedule.length === 0) return null;
+		let priorRemainingBalance = Number(startingLoanAmount);
+		const safePropertyValue = Number(propertyValue);
+		if (!Number.isFinite(priorRemainingBalance) || !Number.isFinite(safePropertyValue) || safePropertyValue <= 0) {
+			return null;
+		}
+		if (priorRemainingBalance / safePropertyValue <= ltvThreshold) return null;
+		for (const payment of paymentSchedule) {
+			const month = Number(payment?.month);
+			const loanToValue = priorRemainingBalance / safePropertyValue;
+			if (loanToValue <= ltvThreshold) return Math.max(1, month);
+			priorRemainingBalance = Number(payment?.remainingBalance);
+			if (!Number.isFinite(priorRemainingBalance)) break;
+		}
+		return null;
 	}
 	function getCompletionDate(baseDate, paymentMonth) {
 		if (!paymentMonth || !baseDate) return null;
@@ -312,18 +466,51 @@
 					? Math.max(0, Number(parsed.interestRate))
 					: interestRate;
 				years = Number.isFinite(Number(parsed?.years)) ? Math.max(0, Number(parsed.years)) : years;
-				extraMonthlyPayment = parseUsdInput(parsed?.extraMonthlyPayment ?? extraMonthlyPayment);
-				annualTaxes = parseUsdInput(parsed?.annualTaxes ?? annualTaxes);
-				annualInsurance = parseUsdInput(parsed?.annualInsurance ?? annualInsurance);
+				const parsedMonthlyEscrowPayment = parseUsdInput(parsed?.monthlyEscrowPayment);
+				if (parsedMonthlyEscrowPayment > 0) {
+					monthlyEscrowPayment = parsedMonthlyEscrowPayment;
+				} else {
+					// Backwards compatibility for older saved annual tax/insurance values
+					const parsedAnnualTaxes = parseUsdInput(parsed?.annualTaxes);
+					const parsedAnnualInsurance = parseUsdInput(parsed?.annualInsurance);
+					monthlyEscrowPayment = (parsedAnnualTaxes + parsedAnnualInsurance) / 12;
+				}
+				monthlyAssistance = parseUsdInput(parsed?.monthlyAssistance ?? monthlyAssistance);
+				pmiInputMode = parsed?.pmiInputMode === 'percentage' ? 'percentage' : 'dollar';
+				pmiRate = Number.isFinite(Number(parsed?.pmiRate)) ? Math.max(0, Number(parsed.pmiRate)) : pmiRate;
+				pmiDollarAmount = parseUsdInput(parsed?.pmiDollarAmount ?? pmiDollarAmount);
 				loanOriginationDate =
 					typeof parsed?.loanOriginationDate === 'string' && parsed.loanOriginationDate
 						? parsed.loanOriginationDate
 						: today;
-				oneTimePayments = Array.isArray(parsed?.oneTimePayments)
-					? parsed.oneTimePayments.map((payment, idx) => normalizeOneTimePayment(payment, idx + 1))
-					: [];
-				nextOneTimePaymentId =
-					Math.max(0, ...oneTimePayments.map((payment) => Number(payment.id) || 0)) + 1;
+				if (Array.isArray(parsed?.extraPaymentScenarios) && parsed.extraPaymentScenarios.length > 0) {
+					extraPaymentScenarios = parsed.extraPaymentScenarios.map((scenario, idx) =>
+						normalizeExtraPaymentScenario(scenario, idx + 1)
+					);
+				} else if (
+					parseUsdInput(parsed?.extraMonthlyPayment) > 0 ||
+					(Array.isArray(parsed?.oneTimePayments) && parsed.oneTimePayments.length > 0)
+				) {
+					// Backwards compatibility for older single-scenario format
+					extraPaymentScenarios = [
+						normalizeExtraPaymentScenario(
+							{
+								id: 1,
+								name: 'Scenario 1',
+								extraMonthlyPayment: parseUsdInput(parsed?.extraMonthlyPayment),
+								oneTimePayments: Array.isArray(parsed?.oneTimePayments) ? parsed.oneTimePayments : []
+							},
+							1
+						)
+					];
+				} else {
+					extraPaymentScenarios = [];
+				}
+				nextExtraPaymentScenarioId =
+					Math.max(0, ...extraPaymentScenarios.map((scenario) => Number(scenario.id) || 0)) + 1;
+				activeExtraScenarioId =
+					extraPaymentScenarios.find((scenario) => scenario.id === Number(parsed?.activeExtraScenarioId))
+						?.id ?? extraPaymentScenarios[0]?.id ?? null;
 			} else {
 				loanOriginationDate = today;
 			}
@@ -341,11 +528,14 @@
 			downPayment,
 			interestRate,
 			years,
-			extraMonthlyPayment,
-			annualTaxes,
-			annualInsurance,
-			loanOriginationDate,
-			oneTimePayments
+			extraPaymentScenarios,
+			activeExtraScenarioId,
+			monthlyEscrowPayment,
+			monthlyAssistance,
+			pmiInputMode,
+			pmiRate,
+			pmiDollarAmount,
+			loanOriginationDate
 		});
 		try {
 			localStorage.setItem(STORAGE_KEY, snapshot);
@@ -416,132 +606,244 @@
 			</fieldset>
 
 			<fieldset class="group">
-				<legend>Extra Payments</legend>
+				<legend>Escrow Payment</legend>
 				<div class="group-grid">
-					<div class="form-group extraMonthlyPayment">
-						<label for="extraMonthlyPayment">Extra Monthly Payment</label>
+					<div class="form-group escrowPayment">
+						<label for="monthlyEscrowPayment">Monthly Escrow Payment</label>
 						<input
 							type="text"
-							id="extraMonthlyPayment"
+							id="monthlyEscrowPayment"
 							inputmode="numeric"
-							value={formatUsdInput(extraMonthlyPayment)}
-							oninput={(event) => updateExtraMonthlyPaymentInput(event.currentTarget.value)}
+							value={formatUsdInput(monthlyEscrowPayment)}
+							oninput={(event) => updateMonthlyEscrowPaymentInput(event.currentTarget.value)}
 						/>
 					</div>
-					<div class="form-group oneTimePayments">
-						<div class="oneTimePaymentsLabel">Scheduled Extra Payments</div>
-						<div class="oneTimePaymentsList">
-							{#each oneTimePayments as payment (payment.id)}
-								<div class="oneTimePaymentRow">
-									<div class="oneTimePaymentMain">
-										<div class="oneTimePaymentField">
-											<label for={`payment-date-${payment.id}`}
-												>{payment.recurringEnabled ? 'Start Date' : 'Payment Date'}</label
-											>
-											<input
-												type="date"
-												id={`payment-date-${payment.id}`}
-												bind:value={payment.date}
-											/>
-										</div>
-										<div class="oneTimePaymentField">
-											<label for={`payment-amount-${payment.id}`}>Amount</label>
-											<input
-												type="text"
-												id={`payment-amount-${payment.id}`}
-												inputmode="numeric"
-												value={formatUsdInput(payment.amount)}
-												oninput={(event) =>
-													updateOneTimePaymentAmount(payment, event.currentTarget.value)}
-												placeholder="Amount"
-											/>
-										</div>
-										<div class="oneTimePaymentRecurring">
-											<label>
-												<input type="checkbox" bind:checked={payment.recurringEnabled} />
-												Recurring
-											</label>
-										</div>
-									</div>
-									{#if payment.recurringEnabled}
-										<div class="oneTimePaymentRecurringRow">
-											<div class="oneTimePaymentField">
-												<label for={`payment-frequency-${payment.id}`}>Frequency</label>
-												<select
-													id={`payment-frequency-${payment.id}`}
-													bind:value={payment.recurringFrequencyMonths}
-												>
-													{#each recurringFrequencyOptions as option}
-														<option value={option.value}>{option.label}</option>
-													{/each}
-												</select>
-											</div>
-											<div class="oneTimePaymentField">
-												<label for={`payment-end-date-${payment.id}`}>End Date (optional)</label>
-												<input
-													type="date"
-													id={`payment-end-date-${payment.id}`}
-													bind:value={payment.recurringEndDate}
-												/>
-											</div>
-										</div>
-									{/if}
-									<div class="oneTimePaymentActions">
-										<button
-											type="button"
-											class="removePaymentButton"
-											onclick={() => removeOneTimePayment(payment.id)}>Remove</button
-										>
-									</div>
-								</div>
-							{/each}
-							<button type="button" class="addPaymentButton" onclick={addOneTimePayment}>
-								{oneTimePayments.length === 0
-									? '+ Add scheduled extra payment'
-									: '+ Add one-time payment'}
-							</button>
+					<div class="form-group pmiRate">
+						<label for="pmiRate">
+							PMI
+							<span class="pmiModeOptions">
+								<label for="pmiModeDollar">
+									<input
+										type="radio"
+										id="pmiModeDollar"
+										name="pmiInputMode"
+										value="dollar"
+										bind:group={pmiInputMode}
+									/>
+									$
+								</label>
+								<label for="pmiModePercentage">
+									<input
+										type="radio"
+										id="pmiModePercentage"
+										name="pmiInputMode"
+										value="percentage"
+										bind:group={pmiInputMode}
+									/>
+									%
+								</label>
+							</span>
+						</label>
+						<div class="pmiInputRow">
+							{#if pmiInputMode === 'percentage'}
+								<input
+									type="number"
+									id="pmiRate"
+									min="0"
+									step="0.01"
+									value={pmiRate}
+									oninput={(event) => updatePmiRateInput(event.currentTarget.value)}
+								/>
+							{:else}
+								<input
+									type="number"
+									id="pmiDollarAmount"
+									min="0"
+									step="0.01"
+									bind:value={pmiDollarAmount}
+								/>
+							{/if}
 						</div>
+					</div>
+					<div class="form-group monthlyAssistance">
+						<label for="monthlyAssistance">Assistance</label>
+						<input
+							type="text"
+							id="monthlyAssistance"
+							inputmode="decimal"
+							value={assistanceInputValue}
+							onfocus={handleAssistanceFocus}
+							onblur={handleAssistanceBlur}
+							oninput={(event) => updateMonthlyAssistanceInput(event.currentTarget.value)}
+						/>
 					</div>
 				</div>
 			</fieldset>
 
 			<fieldset class="group">
-				<legend>Taxes and Insurance</legend>
-				<div class="group-grid">
-					<div class="form-group annualTaxes">
-						<label for="annualTaxes">Annual Taxes</label>
-						<input
-							type="text"
-							id="annualTaxes"
-							inputmode="numeric"
-							value={formatUsdInput(annualTaxes)}
-							oninput={(event) => updateAnnualTaxesInput(event.currentTarget.value)}
-						/>
-					</div>
-					<div class="form-group annualInsurance">
-						<label for="annualInsurance">Annual Insurance</label>
-						<input
-							type="text"
-							id="annualInsurance"
-							inputmode="numeric"
-							value={formatUsdInput(annualInsurance)}
-							oninput={(event) => updateAnnualInsuranceInput(event.currentTarget.value)}
-						/>
-					</div>
+				<legend>Extra Payments</legend>
+				<div class="scenarioList">
+					{#each extraPaymentScenarios as scenario (scenario.id)}
+						<div class="scenarioCard">
+							<div class="scenarioCardHeader">
+								<input type="text" bind:value={scenario.name} class="scenarioNameInput" />
+								<div class="scenarioCardActions">
+									<button
+										type="button"
+										class="removePaymentButton"
+										onclick={() => removeExtraPaymentScenario(scenario.id)}>Remove</button
+									>
+								</div>
+							</div>
+							<div class="group-grid">
+								<div class="form-group extraMonthlyPayment">
+									<label for={`extraMonthlyPayment-${scenario.id}`}>Extra Monthly Payment</label>
+									<input
+										type="text"
+										id={`extraMonthlyPayment-${scenario.id}`}
+										inputmode="numeric"
+										value={formatUsdInput(scenario.extraMonthlyPayment)}
+										oninput={(event) =>
+											updateExtraMonthlyPaymentInput(scenario, event.currentTarget.value)}
+									/>
+								</div>
+								<div class="form-group oneTimePayments">
+									<div class="oneTimePaymentsLabel">Scheduled Extra Payments</div>
+									<div class="oneTimePaymentsList">
+										{#each scenario.oneTimePayments as payment (payment.id)}
+											<div class="oneTimePaymentRow">
+												<div class="oneTimePaymentMain">
+													<div class="oneTimePaymentField">
+														<label for={`payment-date-${scenario.id}-${payment.id}`}
+															>{payment.recurringEnabled ? 'Start Date' : 'Payment Date'}</label
+														>
+														<input
+															type="date"
+															id={`payment-date-${scenario.id}-${payment.id}`}
+															bind:value={payment.date}
+														/>
+													</div>
+													<div class="oneTimePaymentField">
+														<label for={`payment-amount-${scenario.id}-${payment.id}`}>Amount</label>
+														<input
+															type="text"
+															id={`payment-amount-${scenario.id}-${payment.id}`}
+															inputmode="numeric"
+															value={formatUsdInput(payment.amount)}
+															oninput={(event) =>
+																updateOneTimePaymentAmount(payment, event.currentTarget.value)}
+															placeholder="Amount"
+														/>
+													</div>
+													<div class="oneTimePaymentRecurring">
+														<label>
+															<input type="checkbox" bind:checked={payment.recurringEnabled} />
+															Recurring
+														</label>
+													</div>
+												</div>
+												{#if payment.recurringEnabled}
+													<div class="oneTimePaymentRecurringRow">
+														<div class="oneTimePaymentField">
+															<label for={`payment-frequency-${scenario.id}-${payment.id}`}>Frequency</label>
+															<select
+																id={`payment-frequency-${scenario.id}-${payment.id}`}
+																bind:value={payment.recurringFrequencyMonths}
+															>
+																{#each recurringFrequencyOptions as option}
+																	<option value={option.value}>{option.label}</option>
+																{/each}
+															</select>
+														</div>
+														<div class="oneTimePaymentField">
+															<label for={`payment-end-date-${scenario.id}-${payment.id}`}
+																>End Date (optional)</label
+															>
+															<input
+																type="date"
+																id={`payment-end-date-${scenario.id}-${payment.id}`}
+																bind:value={payment.recurringEndDate}
+															/>
+														</div>
+													</div>
+												{/if}
+												<div class="oneTimePaymentActions">
+													<button
+														type="button"
+														class="removePaymentButton"
+														onclick={() => removeOneTimePayment(scenario, payment.id)}>Remove</button
+													>
+												</div>
+											</div>
+										{/each}
+										<button
+											type="button"
+											class="addPaymentButton"
+											onclick={() => addOneTimePayment(scenario)}
+										>
+											{scenario.oneTimePayments.length === 0
+												? '+ Add scheduled extra payment'
+												: '+ Add one-time payment'}
+										</button>
+									</div>
+								</div>
+							</div>
+						</div>
+					{/each}
+					<button type="button" class="addPaymentButton" onclick={addExtraPaymentScenario}>
+						+ Add payoff scenario
+					</button>
 				</div>
 			</fieldset>
 		</div>
 	</section>
 	<section class="panel results-panel">
 		<h2>Results</h2>
+		{#if extraScenarioSummaries.length > 1}
+			<div class="activeScenarioSelector">
+				<label for="activeExtraScenarioId">Compare Scenario</label>
+				<select
+					id="activeExtraScenarioId"
+					bind:value={activeExtraScenarioId}
+				>
+					{#each extraScenarioSummaries as scenarioSummary (scenarioSummary.id)}
+						<option value={scenarioSummary.id}>{scenarioSummary.name}</option>
+					{/each}
+				</select>
+			</div>
+		{/if}
 		<div class="results">
+			<div class="monthlyPaymentSummary">
+				<div class="monthlyPaymentCard">
+					<span>Total Monthly Payment (No Extra)</span>
+					<strong
+						>{baselineTotalMonthlyPayment.toLocaleString('en-US', {
+							style: 'currency',
+							currency: 'USD'
+						})}</strong
+					>
+					<small>Payoff: {formatCompletionDate(baselineCompletionDate)}</small>
+				</div>
+				{#each extraScenarioSummaries as scenarioSummary (scenarioSummary.id)}
+					<div class="monthlyPaymentCard">
+						<span>{scenarioSummary.name}</span>
+						<strong
+							>{scenarioSummary.totalMonthlyPayment.toLocaleString('en-US', {
+								style: 'currency',
+								currency: 'USD'
+							})}</strong
+						>
+						<small>Payoff: {formatCompletionDate(scenarioSummary.completionDate)}</small>
+					</div>
+				{/each}
+			</div>
 			<table>
 				<thead>
 					<tr>
 						<th></th>
 						{#if hasExtraScenario}
 							<th>Without Extra Payment</th>
-							<th>With Extra Payment</th>
+							<th>{activeExtraScenarioSummary?.name ?? 'Selected Scenario'}</th>
 							<th>Difference</th>
 						{:else}
 							<th>Results</th>
@@ -559,32 +861,23 @@
 						</td>
 						{#if hasExtraScenario}
 							<td>
-								{(payments[0]?.payment || 0).toLocaleString('en-US', {
+								{(activeExtraScenarioSummary?.payments[0]?.payment || 0).toLocaleString('en-US', {
 									style: 'currency',
 									currency: 'USD'
 								})}
 							</td>
 							<td>
-								{((payments[0]?.payment || 0) - (baselinePayments[0]?.payment || 0)).toLocaleString(
-									'en-US',
-									{ style: 'currency', currency: 'USD' }
-								)}
+								{(
+									(activeExtraScenarioSummary?.payments[0]?.payment || 0) -
+									(baselinePayments[0]?.payment || 0)
+								).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}
 							</td>
 						{/if}
 					</tr>
 					<tr>
-						<td>Monthly Taxes:</td>
+						<td>Escrow Payment:</td>
 						<td colspan="1"
-							>{monthlyTaxes.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}</td
-						>
-						{#if hasExtraScenario}
-							<td colspan="2"></td>
-						{/if}
-					</tr>
-					<tr>
-						<td>Monthly Insurance:</td>
-						<td colspan="1"
-							>{monthlyInsurance.toLocaleString('en-US', {
+							>{monthlyEscrowPayment.toLocaleString('en-US', {
 								style: 'currency',
 								currency: 'USD'
 							})}</td
@@ -593,27 +886,64 @@
 							<td colspan="2"></td>
 						{/if}
 					</tr>
+					{#if baselineMonthlyPmi > 0 || extraMonthlyPmi > 0}
+						<tr>
+							<td>Monthly PMI:</td>
+							<td>{baselineMonthlyPmi.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}</td>
+							{#if hasExtraScenario}
+								<td>{extraMonthlyPmi.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}</td>
+								<td>
+									{(baselineMonthlyPmi - extraMonthlyPmi).toLocaleString('en-US', {
+										style: 'currency',
+										currency: 'USD'
+									})}
+								</td>
+							{/if}
+						</tr>
+					{/if}
+					{#if monthlyAssistance > 0}
+						<tr>
+							<td>Assistance:</td>
+							<td>{(monthlyAssistance * -1).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}</td>
+							{#if hasExtraScenario}
+								<td
+									>{(monthlyAssistance * -1).toLocaleString('en-US', {
+										style: 'currency',
+										currency: 'USD'
+									})}</td
+								>
+								<td>{(0).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}</td>
+							{/if}
+						</tr>
+					{/if}
 					<tr>
 						<td>Total Monthly Payment:</td>
-						<td>
-							{(
-								(baselinePayments[0]?.payment || 0) +
-								monthlyTaxes +
-								monthlyInsurance
-							).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}
-						</td>
+						<td>{baselineTotalMonthlyPayment.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}</td>
 						{#if hasExtraScenario}
+							<td>{extraTotalMonthlyPayment.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}</td>
 							<td>
-								{((payments[0]?.payment || 0) + monthlyTaxes + monthlyInsurance).toLocaleString(
-									'en-US',
-									{ style: 'currency', currency: 'USD' }
-								)}
+								{(extraTotalMonthlyPayment - baselineTotalMonthlyPayment).toLocaleString('en-US', {
+									style: 'currency',
+									currency: 'USD'
+								})}
 							</td>
+						{/if}
+					</tr>
+					<tr>
+						<td>PMI End Date:</td>
+						<td>{formatCompletionDate(baselinePmiEndDate)}</td>
+						{#if hasExtraScenario}
+							<td>{formatCompletionDate(extraPmiEndDate)}</td>
 							<td>
-								{((payments[0]?.payment || 0) - (baselinePayments[0]?.payment || 0)).toLocaleString(
-									'en-US',
-									{ style: 'currency', currency: 'USD' }
-								)}
+								{#if baselinePmiEndDate && extraPmiEndDate}
+									{Math.max(
+										(baselinePmiEndDate.getFullYear() - extraPmiEndDate.getFullYear()) * 12 +
+											(baselinePmiEndDate.getMonth() - extraPmiEndDate.getMonth()),
+										0
+									)} months earlier
+								{:else}
+									--
+								{/if}
 							</td>
 						{/if}
 					</tr>
@@ -759,6 +1089,56 @@
 		height: 2.6rem;
 		font-size: 1.1rem;
 	}
+	.scenarioList {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+	.scenarioCard {
+		border: 1px solid var(--borderColorSoft);
+		border-radius: 8px;
+		padding: 1rem;
+	}
+	.scenarioCardHeader {
+		display: flex;
+		gap: 0.75rem;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: 0.75rem;
+	}
+	.scenarioNameInput {
+		flex: 1;
+		min-width: 160px;
+	}
+	.activeScenarioSelector {
+		display: flex;
+		gap: 0.75rem;
+		align-items: center;
+		margin-bottom: 1rem;
+	}
+	.activeScenarioSelector select {
+		max-width: 320px;
+	}
+	.pmiInputRow {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+		gap: 0.5rem;
+	}
+	.pmiModeOptions {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.75rem;
+		margin-left: 0.75rem;
+		font-family: inherit;
+		font-weight: 500;
+	}
+	.pmiModeOptions label {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		font-family: inherit;
+		font-weight: 500;
+	}
 	.homePrice {
 		grid-column: 1 / 4;
 		@media (max-width: 768px) {
@@ -776,15 +1156,26 @@
 	}
 
 	.interestRate,
-	.annualTaxes {
+	.escrowPayment {
 		grid-column: 1 / 3;
 		@media (max-width: 768px) {
 			grid-column: 1 / -1;
 		}
 	}
-	.years,
-	.annualInsurance {
+	.years {
 		grid-column: 3 / 5;
+		@media (max-width: 768px) {
+			grid-column: 1 / -1;
+		}
+	}
+	.pmiRate {
+		grid-column: 3 / 5;
+		@media (max-width: 768px) {
+			grid-column: 1 / -1;
+		}
+	}
+	.monthlyAssistance {
+		grid-column: 5 / 7;
 		@media (max-width: 768px) {
 			grid-column: 1 / -1;
 		}
@@ -886,6 +1277,33 @@
 		border-radius: 0;
 		padding: 0;
 		box-shadow: none;
+		.monthlyPaymentSummary {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			gap: 1rem;
+			margin-bottom: 1rem;
+			@media (max-width: 768px) {
+				grid-template-columns: 1fr;
+			}
+		}
+		.monthlyPaymentCard {
+			border: 1px solid var(--borderColorSoft);
+			border-radius: 8px;
+			padding: 0.85rem 1rem;
+			background: var(--accentSurface);
+			display: flex;
+			flex-direction: column;
+			gap: 0.25rem;
+		}
+		.monthlyPaymentCard span {
+			font-family: inherit;
+			font-weight: 600;
+			opacity: 0.85;
+		}
+		.monthlyPaymentCard strong {
+			font-size: 1.5rem;
+			line-height: 1.2;
+		}
 
 		table {
 			width: 100%;
