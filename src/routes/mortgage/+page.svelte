@@ -352,9 +352,27 @@
 		if (!date) return '--';
 		return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 	}
+	function parseIsoDateString(dateValue) {
+		if (typeof dateValue !== 'string' || dateValue.trim() === '') return null;
+		const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateValue.trim());
+		if (!match) return null;
+		const year = Number(match[1]);
+		const month = Number(match[2]);
+		const day = Number(match[3]);
+		const parsedDate = new Date(year, month - 1, day);
+		if (
+			Number.isNaN(parsedDate.getTime()) ||
+			parsedDate.getFullYear() !== year ||
+			parsedDate.getMonth() !== month - 1 ||
+			parsedDate.getDate() !== day
+		) {
+			return null;
+		}
+		return parsedDate;
+	}
 	function calculateAgeAtDate(birthdateValue, targetDate) {
-		const birthDate = new Date(birthdateValue);
-		if (!targetDate || Number.isNaN(birthDate.getTime())) return null;
+		const birthDate = parseIsoDateString(birthdateValue);
+		if (!targetDate || !birthDate || Number.isNaN(targetDate.getTime())) return null;
 		const monthsDifference =
 			(targetDate.getFullYear() - birthDate.getFullYear()) * 12 +
 			(targetDate.getMonth() - birthDate.getMonth());
@@ -446,6 +464,13 @@
 		}
 		if (safeLoanAmount <= 0 || numberOfPayments <= 0) return [];
 
+		const monthlyRate = safeInterestRate / 12 / 100;
+		const baseMonthlyPayment =
+			monthlyRate === 0
+				? safeLoanAmount / numberOfPayments
+				: (safeLoanAmount * monthlyRate * Math.pow(1 + monthlyRate, numberOfPayments)) /
+					(Math.pow(1 + monthlyRate, numberOfPayments) - 1);
+
 		let balance = safeLoanAmount;
 		let month = 0;
 		let totalInterest = 0;
@@ -453,13 +478,6 @@
 
 		while (balance > 0.005 && month < numberOfPayments + 1_200) {
 			month++;
-			const monthlyRate = safeInterestRate / 12 / 100;
-			const remainingPayments = Math.max(numberOfPayments - month + 1, 1);
-			const baseMonthlyPayment =
-				monthlyRate === 0
-					? balance / remainingPayments
-					: (balance * monthlyRate * Math.pow(1 + monthlyRate, remainingPayments)) /
-						(Math.pow(1 + monthlyRate, remainingPayments) - 1);
 			const interestPayment = balance * monthlyRate;
 			totalInterest += interestPayment;
 			const currentMonthDate = new Date(
