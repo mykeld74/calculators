@@ -27,6 +27,7 @@
 	let pmiRate = $state(0.5);
 	let pmiDollarAmount = $state(0);
 	const pmiLtvThreshold = 0.8;
+	let birthdate = $state('1985-01-01');
 	let loanOriginationDate = $state();
 	let baselinePayments = $derived.by(() =>
 		calculateMonthlyPayment(loanAmount, interestRate, years, 0)
@@ -53,7 +54,10 @@
 			const pmiEndDate = getCompletionDate(startDate, pmiEndMonth);
 			const totalMonthlyPayment = Math.max(
 				0,
-				(scenarioPayments[0]?.payment || 0) + monthlyEscrowPayment + baselineMonthlyPmi - monthlyAssistance
+				(scenarioPayments[0]?.payment || 0) +
+					monthlyEscrowPayment +
+					baselineMonthlyPmi -
+					monthlyAssistance
 			);
 			return {
 				id: scenario.id,
@@ -81,10 +85,13 @@
 	let extraTotalInterest = $derived(activeExtraScenarioSummary?.totalInterest ?? 0);
 	let totalAmountPaid = $derived(loanAmount + baselineTotalInterest);
 	let totalNumberOfPayments = $derived(activeExtraScenarioSummary?.payments.length ?? 0);
-	let totalAmountPaidWithExtra = $derived(activeExtraScenarioSummary?.totalAmountPaid ?? loanAmount);
+	let totalAmountPaidWithExtra = $derived(
+		activeExtraScenarioSummary?.totalAmountPaid ?? loanAmount
+	);
 	let baselineCompletionDate = $derived.by(() =>
 		getCompletionDate(startDate, baselinePayments[baselinePayments.length - 1]?.month)
 	);
+	let baselinePayoffAge = $derived.by(() => calculateAgeAtDate(birthdate, baselineCompletionDate));
 	let extraCompletionDate = $derived.by(() => activeExtraScenarioSummary?.completionDate ?? null);
 	let baselineMonthlyPmi = $derived.by(() =>
 		calculateMonthlyPmi(loanAmount, principal, pmiInputMode, pmiRate, pmiDollarAmount)
@@ -101,7 +108,10 @@
 	let baselineTotalMonthlyPayment = $derived.by(() =>
 		Math.max(
 			0,
-			(baselinePayments[0]?.payment || 0) + monthlyEscrowPayment + baselineMonthlyPmi - monthlyAssistance
+			(baselinePayments[0]?.payment || 0) +
+				monthlyEscrowPayment +
+				baselineMonthlyPmi -
+				monthlyAssistance
 		)
 	);
 	let extraTotalMonthlyPayment = $derived.by(() =>
@@ -145,7 +155,10 @@
 			const colors = ['#4bc0c0', '#ff9f40', '#9966ff', '#ff6384', '#36a2eb', '#ffce56'];
 			const scenarioPoints = scenario.payments
 				.map((payment) => ({
-					x: new Date(startDate.getFullYear(), startDate.getMonth() + (payment.month - 1)).getTime(),
+					x: new Date(
+						startDate.getFullYear(),
+						startDate.getMonth() + (payment.month - 1)
+					).getTime(),
 					y: +payment.remainingBalance.toFixed(2)
 				}))
 				.filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
@@ -178,7 +191,10 @@
 			return;
 		}
 		downPaymentPercentage = (downPayment / principal) * 100;
-		downPaymentPercentage = Math.min(100, Math.max(0, Math.round(downPaymentPercentage * 100) / 100));
+		downPaymentPercentage = Math.min(
+			100,
+			Math.max(0, Math.round(downPaymentPercentage * 100) / 100)
+		);
 	};
 	const updateDownPayment = () => {
 		downPayment = principal * (downPaymentPercentage / 100);
@@ -271,10 +287,17 @@
 			nextOneTimePaymentId: 1
 		};
 		normalizedScenario.nextOneTimePaymentId =
-			Math.max(0, ...normalizedScenario.oneTimePayments.map((payment) => Number(payment.id) || 0)) + 1;
+			Math.max(0, ...normalizedScenario.oneTimePayments.map((payment) => Number(payment.id) || 0)) +
+			1;
 		return normalizedScenario;
 	}
-	function calculateMonthlyPmi(currentBalance, propertyValue, pmiMode, annualPmiRate, monthlyPmiAmount) {
+	function calculateMonthlyPmi(
+		currentBalance,
+		propertyValue,
+		pmiMode,
+		annualPmiRate,
+		monthlyPmiAmount
+	) {
 		const safePropertyValue = Number(propertyValue);
 		const safeBalance = Number(currentBalance);
 		const safeAnnualPmiRate = Number(annualPmiRate);
@@ -299,7 +322,11 @@
 		if (!Array.isArray(paymentSchedule) || paymentSchedule.length === 0) return null;
 		let priorRemainingBalance = Number(startingLoanAmount);
 		const safePropertyValue = Number(propertyValue);
-		if (!Number.isFinite(priorRemainingBalance) || !Number.isFinite(safePropertyValue) || safePropertyValue <= 0) {
+		if (
+			!Number.isFinite(priorRemainingBalance) ||
+			!Number.isFinite(safePropertyValue) ||
+			safePropertyValue <= 0
+		) {
 			return null;
 		}
 		if (priorRemainingBalance / safePropertyValue <= ltvThreshold) return null;
@@ -324,6 +351,15 @@
 	function formatCompletionDate(date) {
 		if (!date) return '--';
 		return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+	}
+	function calculateAgeAtDate(birthdateValue, targetDate) {
+		const birthDate = new Date(birthdateValue);
+		if (!targetDate || Number.isNaN(birthDate.getTime())) return null;
+		const monthsDifference =
+			(targetDate.getFullYear() - birthDate.getFullYear()) * 12 +
+			(targetDate.getMonth() - birthDate.getMonth());
+		if (!Number.isFinite(monthsDifference) || monthsDifference < 0) return null;
+		return monthsDifference / 12;
 	}
 	function normalizeOneTimePayment(payment, fallbackId) {
 		const recurringFrequencyMonths = Number(payment?.recurringFrequencyMonths);
@@ -477,13 +513,23 @@
 				}
 				monthlyAssistance = parseUsdInput(parsed?.monthlyAssistance ?? monthlyAssistance);
 				pmiInputMode = parsed?.pmiInputMode === 'percentage' ? 'percentage' : 'dollar';
-				pmiRate = Number.isFinite(Number(parsed?.pmiRate)) ? Math.max(0, Number(parsed.pmiRate)) : pmiRate;
+				pmiRate = Number.isFinite(Number(parsed?.pmiRate))
+					? Math.max(0, Number(parsed.pmiRate))
+					: pmiRate;
 				pmiDollarAmount = parseUsdInput(parsed?.pmiDollarAmount ?? pmiDollarAmount);
+				birthdate =
+					typeof parsed?.birthdate === 'string' &&
+					!Number.isNaN(new Date(parsed.birthdate).getTime())
+						? parsed.birthdate
+						: birthdate;
 				loanOriginationDate =
 					typeof parsed?.loanOriginationDate === 'string' && parsed.loanOriginationDate
 						? parsed.loanOriginationDate
 						: today;
-				if (Array.isArray(parsed?.extraPaymentScenarios) && parsed.extraPaymentScenarios.length > 0) {
+				if (
+					Array.isArray(parsed?.extraPaymentScenarios) &&
+					parsed.extraPaymentScenarios.length > 0
+				) {
 					extraPaymentScenarios = parsed.extraPaymentScenarios.map((scenario, idx) =>
 						normalizeExtraPaymentScenario(scenario, idx + 1)
 					);
@@ -498,7 +544,9 @@
 								id: 1,
 								name: 'Scenario 1',
 								extraMonthlyPayment: parseUsdInput(parsed?.extraMonthlyPayment),
-								oneTimePayments: Array.isArray(parsed?.oneTimePayments) ? parsed.oneTimePayments : []
+								oneTimePayments: Array.isArray(parsed?.oneTimePayments)
+									? parsed.oneTimePayments
+									: []
 							},
 							1
 						)
@@ -509,8 +557,11 @@
 				nextExtraPaymentScenarioId =
 					Math.max(0, ...extraPaymentScenarios.map((scenario) => Number(scenario.id) || 0)) + 1;
 				activeExtraScenarioId =
-					extraPaymentScenarios.find((scenario) => scenario.id === Number(parsed?.activeExtraScenarioId))
-						?.id ?? extraPaymentScenarios[0]?.id ?? null;
+					extraPaymentScenarios.find(
+						(scenario) => scenario.id === Number(parsed?.activeExtraScenarioId)
+					)?.id ??
+					extraPaymentScenarios[0]?.id ??
+					null;
 			} else {
 				loanOriginationDate = today;
 			}
@@ -535,6 +586,7 @@
 			pmiInputMode,
 			pmiRate,
 			pmiDollarAmount,
+			birthdate,
 			loanOriginationDate
 		});
 		try {
@@ -601,6 +653,10 @@
 					<div class="form-group loanOriginationDate">
 						<label for="loanOriginationDate">Loan Origination Date</label>
 						<input type="date" id="loanOriginationDate" bind:value={loanOriginationDate} />
+					</div>
+					<div class="form-group birthdate">
+						<label for="birthdate">Birthdate (to calculate age at payoff)</label>
+						<input type="date" id="birthdate" bind:value={birthdate} />
 					</div>
 				</div>
 			</fieldset>
@@ -724,7 +780,8 @@
 														/>
 													</div>
 													<div class="oneTimePaymentField">
-														<label for={`payment-amount-${scenario.id}-${payment.id}`}>Amount</label>
+														<label for={`payment-amount-${scenario.id}-${payment.id}`}>Amount</label
+														>
 														<input
 															type="text"
 															id={`payment-amount-${scenario.id}-${payment.id}`}
@@ -745,7 +802,9 @@
 												{#if payment.recurringEnabled}
 													<div class="oneTimePaymentRecurringRow">
 														<div class="oneTimePaymentField">
-															<label for={`payment-frequency-${scenario.id}-${payment.id}`}>Frequency</label>
+															<label for={`payment-frequency-${scenario.id}-${payment.id}`}
+																>Frequency</label
+															>
 															<select
 																id={`payment-frequency-${scenario.id}-${payment.id}`}
 																bind:value={payment.recurringFrequencyMonths}
@@ -771,7 +830,8 @@
 													<button
 														type="button"
 														class="removePaymentButton"
-														onclick={() => removeOneTimePayment(scenario, payment.id)}>Remove</button
+														onclick={() => removeOneTimePayment(scenario, payment.id)}
+														>Remove</button
 													>
 												</div>
 											</div>
@@ -802,10 +862,7 @@
 		{#if extraScenarioSummaries.length > 1}
 			<div class="activeScenarioSelector">
 				<label for="activeExtraScenarioId">Compare Scenario</label>
-				<select
-					id="activeExtraScenarioId"
-					bind:value={activeExtraScenarioId}
-				>
+				<select id="activeExtraScenarioId" bind:value={activeExtraScenarioId}>
 					{#each extraScenarioSummaries as scenarioSummary (scenarioSummary.id)}
 						<option value={scenarioSummary.id}>{scenarioSummary.name}</option>
 					{/each}
@@ -823,6 +880,11 @@
 						})}</strong
 					>
 					<small>Payoff: {formatCompletionDate(baselineCompletionDate)}</small>
+					<small
+						>Age at payoff: {baselinePayoffAge === null
+							? '--'
+							: baselinePayoffAge.toFixed(1)}</small
+					>
 				</div>
 				{#each extraScenarioSummaries as scenarioSummary (scenarioSummary.id)}
 					<div class="monthlyPaymentCard">
@@ -834,6 +896,12 @@
 							})}</strong
 						>
 						<small>Payoff: {formatCompletionDate(scenarioSummary.completionDate)}</small>
+						<small
+							>Age at payoff: {calculateAgeAtDate(birthdate, scenarioSummary.completionDate) ===
+							null
+								? '--'
+								: calculateAgeAtDate(birthdate, scenarioSummary.completionDate).toFixed(1)}</small
+						>
 					</div>
 				{/each}
 			</div>
@@ -889,9 +957,19 @@
 					{#if baselineMonthlyPmi > 0 || extraMonthlyPmi > 0}
 						<tr>
 							<td>Monthly PMI:</td>
-							<td>{baselineMonthlyPmi.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}</td>
+							<td
+								>{baselineMonthlyPmi.toLocaleString('en-US', {
+									style: 'currency',
+									currency: 'USD'
+								})}</td
+							>
 							{#if hasExtraScenario}
-								<td>{extraMonthlyPmi.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}</td>
+								<td
+									>{extraMonthlyPmi.toLocaleString('en-US', {
+										style: 'currency',
+										currency: 'USD'
+									})}</td
+								>
 								<td>
 									{(baselineMonthlyPmi - extraMonthlyPmi).toLocaleString('en-US', {
 										style: 'currency',
@@ -904,7 +982,12 @@
 					{#if monthlyAssistance > 0}
 						<tr>
 							<td>Assistance:</td>
-							<td>{(monthlyAssistance * -1).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}</td>
+							<td
+								>{(monthlyAssistance * -1).toLocaleString('en-US', {
+									style: 'currency',
+									currency: 'USD'
+								})}</td
+							>
 							{#if hasExtraScenario}
 								<td
 									>{(monthlyAssistance * -1).toLocaleString('en-US', {
@@ -918,9 +1001,19 @@
 					{/if}
 					<tr>
 						<td>Total Monthly Payment:</td>
-						<td>{baselineTotalMonthlyPayment.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}</td>
+						<td
+							>{baselineTotalMonthlyPayment.toLocaleString('en-US', {
+								style: 'currency',
+								currency: 'USD'
+							})}</td
+						>
 						{#if hasExtraScenario}
-							<td>{extraTotalMonthlyPayment.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}</td>
+							<td
+								>{extraTotalMonthlyPayment.toLocaleString('en-US', {
+									style: 'currency',
+									currency: 'USD'
+								})}</td
+							>
 							<td>
 								{(extraTotalMonthlyPayment - baselineTotalMonthlyPayment).toLocaleString('en-US', {
 									style: 'currency',
@@ -1188,6 +1281,12 @@
 	}
 	.loanOriginationDate {
 		grid-column: 5 / 7;
+		@media (max-width: 768px) {
+			grid-column: 1 / -1;
+		}
+	}
+	.birthdate {
+		grid-column: 1 / 3;
 		@media (max-width: 768px) {
 			grid-column: 1 / -1;
 		}
