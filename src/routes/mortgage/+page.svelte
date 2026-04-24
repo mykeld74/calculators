@@ -2,12 +2,12 @@
 	import { onMount } from 'svelte';
 	import { LineChart } from '../../lib';
 	const STORAGE_KEY = 'mortgage-calculator-v1';
-	let principal = $state(342700);
+	let principal = $state(0);
 	let downPayment = $state(0);
 	let downPaymentPercentage = $state(0);
 	let loanAmount = $derived(Math.max(0, principal - downPayment));
-	let interestRate = $state(2.625);
-	let years = $state(20);
+	let interestRate = $state(0);
+	let years = $state(0);
 	let extraPaymentScenarios = $state([]);
 	let nextExtraPaymentScenarioId = 1;
 	let activeExtraScenarioId = $state(null);
@@ -19,18 +19,18 @@
 	];
 	const recurringFrequencyValues = recurringFrequencyOptions.map((option) => option.value);
 	let hydrated = $state(false);
-	let monthlyEscrowPayment = $state(508);
+	let monthlyEscrowPayment = $state(0);
 	let monthlyAssistance = $state(0);
 	let assistanceEditValue = $state('');
 	let assistanceInputFocused = $state(false);
 	let pmiInputMode = $state('dollar');
-	let pmiRate = $state(0.5);
+	let pmiRate = $state(0);
 	let pmiDollarAmount = $state(0);
 	const pmiLtvThreshold = 0.8;
-	let birthdate = $state('1985-01-01');
+	let birthdate = $state('');
 	let loanOriginationDate = $state();
 	let baselinePayments = $derived.by(() =>
-		calculateMonthlyPayment(loanAmount, interestRate, years, 0)
+		calculateMonthlyPayment(loanAmount, interestRate, years, 0, startDate, [])
 	);
 	let startDate = $derived.by(() => {
 		const parsedStartDate = new Date(loanOriginationDate);
@@ -446,13 +446,6 @@
 		}
 		if (safeLoanAmount <= 0 || numberOfPayments <= 0) return [];
 
-		const monthlyRate = safeInterestRate / 12 / 100;
-		const baseMonthlyPayment =
-			monthlyRate === 0
-				? safeLoanAmount / numberOfPayments
-				: (safeLoanAmount * monthlyRate * Math.pow(1 + monthlyRate, numberOfPayments)) /
-					(Math.pow(1 + monthlyRate, numberOfPayments) - 1);
-
 		let balance = safeLoanAmount;
 		let month = 0;
 		let totalInterest = 0;
@@ -460,6 +453,13 @@
 
 		while (balance > 0.005 && month < numberOfPayments + 1_200) {
 			month++;
+			const monthlyRate = safeInterestRate / 12 / 100;
+			const remainingPayments = Math.max(numberOfPayments - month + 1, 1);
+			const baseMonthlyPayment =
+				monthlyRate === 0
+					? balance / remainingPayments
+					: (balance * monthlyRate * Math.pow(1 + monthlyRate, remainingPayments)) /
+						(Math.pow(1 + monthlyRate, remainingPayments) - 1);
 			const interestPayment = balance * monthlyRate;
 			totalInterest += interestPayment;
 			const currentMonthDate = new Date(
@@ -491,7 +491,6 @@
 	}
 
 	onMount(() => {
-		const today = new Date().toISOString().split('T')[0];
 		try {
 			const raw = localStorage.getItem(STORAGE_KEY);
 			if (raw) {
@@ -525,7 +524,7 @@
 				loanOriginationDate =
 					typeof parsed?.loanOriginationDate === 'string' && parsed.loanOriginationDate
 						? parsed.loanOriginationDate
-						: today;
+						: loanOriginationDate;
 				if (
 					Array.isArray(parsed?.extraPaymentScenarios) &&
 					parsed.extraPaymentScenarios.length > 0
@@ -562,11 +561,8 @@
 					)?.id ??
 					extraPaymentScenarios[0]?.id ??
 					null;
-			} else {
-				loanOriginationDate = today;
 			}
 		} catch {
-			loanOriginationDate = today;
 		}
 		updateDownPaymentPercentage();
 		hydrated = true;
@@ -605,7 +601,7 @@
 		<div class="scenario-form">
 			<fieldset class="group">
 				<legend>Home and Loan</legend>
-				<div class="group-grid">
+				<div class="group-grid alignedInputsGrid">
 					<div class="form-group homePrice">
 						<label for="principal">Home Price:</label>
 						<input
@@ -663,7 +659,7 @@
 
 			<fieldset class="group">
 				<legend>Escrow Payment</legend>
-				<div class="group-grid">
+				<div class="group-grid alignedInputsGrid">
 					<div class="form-group escrowPayment">
 						<label for="monthlyEscrowPayment">Monthly Escrow Payment</label>
 						<input
@@ -1164,6 +1160,18 @@
 		height: 2.6rem;
 		font-size: 1.1rem;
 	}
+	.alignedInputsGrid {
+		align-items: start;
+	}
+	.alignedInputsGrid > .form-group > label {
+		min-height: 2.4rem;
+		display: flex;
+		align-items: flex-end;
+	}
+	.alignedInputsGrid > .form-group > input,
+	.alignedInputsGrid > .form-group > .pmiInputRow {
+		align-self: start;
+	}
 	.scenarioList {
 		display: flex;
 		flex-direction: column;
@@ -1272,6 +1280,56 @@
 		@media (max-width: 768px) {
 			grid-column: 1 / -1;
 		}
+	}
+	input[type='checkbox'],
+	input[type='radio'] {
+		appearance: none;
+		-webkit-appearance: none;
+		width: 1.2rem;
+		height: 1.2rem;
+		border: 2px solid color-mix(in oklab, var(--fontColor) 70%, transparent);
+		background: transparent;
+		display: inline-grid;
+		place-content: center;
+		cursor: pointer;
+		vertical-align: middle;
+	}
+	input[type='radio'] {
+		border-radius: 50%;
+	}
+	input[type='checkbox'] {
+		border-radius: 4px;
+	}
+	input[type='checkbox']::before,
+	input[type='radio']::before {
+		content: '';
+		width: 0.7rem;
+		height: 0.7rem;
+		transform: scale(0);
+		transition: transform 120ms ease-in-out;
+		background: var(--accentColor);
+	}
+	input[type='checkbox']::before {
+		content: '✓';
+		width: auto;
+		height: auto;
+		background: none;
+		color: var(--accentColor);
+		font-size: 0.85rem;
+		line-height: 1;
+		font-weight: 700;
+	}
+	input[type='radio']::before {
+		border-radius: 50%;
+	}
+	input[type='checkbox']:checked::before,
+	input[type='radio']:checked::before {
+		transform: scale(1);
+	}
+	input[type='checkbox']:focus-visible,
+	input[type='radio']:focus-visible {
+		outline: 2px solid var(--accentColor);
+		outline-offset: 2px;
 	}
 	.oneTimePayments {
 		grid-column: 1 / -1;
