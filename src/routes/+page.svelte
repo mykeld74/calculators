@@ -1298,6 +1298,7 @@ function handleScenarioTabDragEnd() {
 		padding: 1.5rem;
 		border: 1px solid var(--borderColor);
 		border-radius: 10px;
+		container-type: inline-size;
 	}
 	.panel h2 {
 		margin: 0 0 1rem 0;
@@ -1358,6 +1359,9 @@ function handleScenarioTabDragEnd() {
 		display: grid;
 		grid-template-columns: 1.2fr 0.8fr 1fr;
 		gap: 0.5rem;
+		@container (max-width: 480px) {
+			grid-template-columns: 1fr;
+		}
 	}
 	.field-head {
 		display: flex;
@@ -1578,6 +1582,9 @@ function handleScenarioTabDragEnd() {
 		display: flex;
 		gap: 0.5rem;
 		flex-wrap: wrap;
+		@container (max-width: 680px) {
+			width: 100%;
+		}
 	}
 	.ghost-btn,
 	.remove-btn {
@@ -1588,6 +1595,11 @@ function handleScenarioTabDragEnd() {
 		border-radius: 6px;
 		cursor: pointer;
 		font-size: 0.95rem;
+	}
+	@container (max-width: 680px) {
+		.tab-actions .ghost-btn {
+			flex: 1 1 calc(50% - 0.25rem);
+		}
 	}
 	.ghost-btn.danger,
 	.remove-btn {
@@ -1651,6 +1663,7 @@ function handleScenarioTabDragEnd() {
 		align-items: baseline;
 		padding: 0.5rem 0;
 		border-bottom: 1px dashed var(--borderColorSoft);
+		gap: 0.75rem;
 	}
 	.result span {
 		font-size: 1rem;
@@ -1660,6 +1673,7 @@ function handleScenarioTabDragEnd() {
 		font-size: 1.1rem;
 		text-align: right;
 		min-width: 9.5rem;
+		word-break: break-word;
 	}
 	.result.highlight {
 		background: var(--accentSurface);
@@ -1722,5 +1736,50 @@ function handleScenarioTabDragEnd() {
 
 	.chart-panel :global(canvas) {
 		max-width: 100%;
+	}
+	@media (max-width: 640px) {
+		.panel {
+			padding: 1rem;
+		}
+		.tabs {
+			width: 100%;
+		}
+		.tab {
+			flex: 1 1 100%;
+			justify-content: flex-start;
+		}
+		.tabs-header {
+			gap: 0.75rem;
+		}
+		.field label,
+		.field-label {
+			font-size: 0.95rem;
+		}
+		.field input[type='text'],
+		.field input[type='number'],
+		.field input[type='date'],
+		.field select {
+			font-size: 1rem;
+		}
+		.hero-main strong,
+		.hero-runout strong {
+			font-size: 1.25rem;
+		}
+		.result {
+			flex-direction: column;
+			align-items: flex-start;
+			padding: 0.65rem 0;
+		}
+		.result strong {
+			min-width: 0;
+			text-align: left;
+		}
+		.compare {
+			font-size: 0.9rem;
+		}
+		.compare th,
+		.compare td {
+			padding: 0.5rem 0.65rem;
+		}
 	}
 </style>
