@@ -1,6 +1,7 @@
 <script>
 	import { LineChart, NumberOrRange } from '$lib';
 	import { flip } from 'svelte/animate';
+	import { fade, fly } from 'svelte/transition';
 	import { onMount } from 'svelte';
 	import { currentAge, computeResults, calculateSuggestedWithdrawalRate } from '$lib/retirement.js';
 
@@ -239,6 +240,49 @@ let draggingScenarioId = $state(null);
 		scenario[key] = parseUsdInput(value);
 	}
 
+	const sharedScenarioFields = [
+		'birthdate',
+		'currentBalance',
+		'annualSalary',
+		'contributionPercent',
+		'employerMatch'
+	];
+	let dismissedSyncSignature = $state(null);
+
+	function scenariosHaveSharedDifferences() {
+		if (!activeScenario || scenarios.length <= 1) return false;
+		return scenarios.some((scenario) => {
+			if (scenario.id === activeScenario.id) return false;
+			return sharedScenarioFields.some((key) => scenario[key] !== activeScenario[key]);
+		});
+	}
+
+	function sharedFieldsSignature(scenario) {
+		if (!scenario) return '';
+		return sharedScenarioFields.map((key) => `${key}:${scenario[key]}`).join('|');
+	}
+
+	let activeSharedFieldsSignature = $derived(sharedFieldsSignature(activeScenario));
+	let showUpdateAllScenariosButton = $derived(
+		scenariosHaveSharedDifferences() && dismissedSyncSignature !== activeSharedFieldsSignature
+	);
+
+	function applySharedValuesToAllScenarios() {
+		if (!activeScenario || scenarios.length <= 1) return;
+		for (const scenario of scenarios) {
+			if (scenario.id === activeScenario.id) continue;
+			scenario.birthdate = activeScenario.birthdate;
+			scenario.currentBalance = activeScenario.currentBalance;
+			scenario.annualSalary = activeScenario.annualSalary;
+			scenario.contributionPercent = activeScenario.contributionPercent;
+			scenario.employerMatch = activeScenario.employerMatch;
+		}
+	}
+
+	function dismissScenarioSyncButtons() {
+		dismissedSyncSignature = activeSharedFieldsSignature;
+	}
+
 	const monthOptions = [
 		{ value: 1, label: 'Jan' },
 		{ value: 2, label: 'Feb' },
@@ -287,18 +331,25 @@ let draggingScenarioId = $state(null);
 		)
 	);
 
-	function updateBirthdatePart(scenario, part, rawValue) {
-		if (!scenario) return;
+	function birthdateWithUpdatedPart(scenario, part, rawValue) {
+		if (!scenario) return null;
 		const parts = getBirthdateParts(scenario);
 		const value = Number(rawValue);
-		if (!Number.isInteger(value)) return;
+		if (!Number.isInteger(value)) return null;
 		const next = { ...parts, [part]: value };
 		next.year = Math.max(1900, Math.min(next.year, CURRENT_YEAR));
 		next.month = Math.max(1, Math.min(next.month, 12));
 		next.day = Math.max(1, Math.min(next.day, daysInMonth(next.year, next.month)));
 		const mm = String(next.month).padStart(2, '0');
 		const dd = String(next.day).padStart(2, '0');
-		scenario.birthdate = `${next.year}-${mm}-${dd}`;
+		return `${next.year}-${mm}-${dd}`;
+	}
+
+	function updateBirthdatePart(part, rawValue) {
+		if (!activeScenario) return;
+		const nextBirthdate = birthdateWithUpdatedPart(activeScenario, part, rawValue);
+		if (!nextBirthdate) return;
+		activeScenario.birthdate = nextBirthdate;
 	}
 
 	function monthlyEmployeeContributionFromPercent(s) {
@@ -567,8 +618,7 @@ function handleScenarioTabDragEnd() {
 								<select
 									id="birthMonth"
 									value={activeBirthdateParts.month}
-									onchange={(e) =>
-										updateBirthdatePart(activeScenario, 'month', e.currentTarget.value)}
+									onchange={(e) => updateBirthdatePart('month', e.currentTarget.value)}
 								>
 									{#each monthOptions as month}
 										<option value={month.value}>{month.label}</option>
@@ -577,8 +627,7 @@ function handleScenarioTabDragEnd() {
 								<select
 									id="birthDay"
 									value={activeBirthdateParts.day}
-									onchange={(e) =>
-										updateBirthdatePart(activeScenario, 'day', e.currentTarget.value)}
+									onchange={(e) => updateBirthdatePart('day', e.currentTarget.value)}
 								>
 									{#each activeDaysInMonth as day}
 										<option value={day}>{day}</option>
@@ -587,8 +636,7 @@ function handleScenarioTabDragEnd() {
 								<select
 									id="birthYear"
 									value={activeBirthdateParts.year}
-									onchange={(e) =>
-										updateBirthdatePart(activeScenario, 'year', e.currentTarget.value)}
+									onchange={(e) => updateBirthdatePart('year', e.currentTarget.value)}
 								>
 									{#each YEAR_OPTIONS as year}
 										<option value={year}>{year}</option>
@@ -619,6 +667,25 @@ function handleScenarioTabDragEnd() {
 									updateCurrencyField(activeScenario, 'annualSalary', e.currentTarget.value)}
 							/>
 						</div>
+						{#if showUpdateAllScenariosButton}
+							<div class="field syncAllField" in:fly={{ y: 12, duration: 220 }} out:fade={{ duration: 160 }}>
+								<label class="field-label" for="syncSharedValuesBtn">Scenario Sync</label>
+								<div class="syncAllActions">
+									<button
+										id="syncSharedValuesBtn"
+										type="button"
+										class="syncAllBtn"
+										onclick={applySharedValuesToAllScenarios}
+									>
+										Update all scenarios
+									</button>
+									<button type="button" class="dismissSyncBtn" onclick={dismissScenarioSyncButtons}>
+										Don't sync
+									</button>
+								</div>
+								<div class="field-note">Apply these shared values everywhere.</div>
+							</div>
+						{/if}
 					</div>
 				</fieldset>
 
@@ -1378,6 +1445,73 @@ function handleScenarioTabDragEnd() {
 	.field-note {
 		font-size: 0.85rem;
 		opacity: 0.6;
+	}
+	.syncAllField {
+		justify-content: flex-end;
+	}
+	.syncAllActions {
+		display: flex;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+	}
+	.syncAllBtn {
+		height: 2.6rem;
+		border: 1px solid rgba(255, 208, 120, 0.8);
+		border-radius: 8px;
+		background: linear-gradient(135deg, rgba(255, 176, 64, 0.24), rgba(255, 114, 100, 0.28));
+		color: #ffeccc;
+		font-weight: 700;
+		letter-spacing: 0.01em;
+		box-shadow:
+			0 0 0 1px rgba(255, 186, 80, 0.22),
+			0 8px 18px rgba(255, 130, 80, 0.18);
+		transition:
+			transform 140ms ease,
+			filter 140ms ease,
+			box-shadow 200ms ease;
+		animation: syncAllPulse 1800ms ease-in-out infinite;
+	}
+	.syncAllBtn:hover {
+		filter: brightness(1.06);
+		transform: translateY(-1px);
+		box-shadow:
+			0 0 0 1px rgba(255, 186, 80, 0.35),
+			0 10px 20px rgba(255, 130, 80, 0.28);
+	}
+	.syncAllBtn:active {
+		transform: translateY(0);
+		animation-play-state: paused;
+	}
+	.dismissSyncBtn {
+		height: 2.6rem;
+		padding: 0 0.9rem;
+		border: 1px solid var(--borderColor);
+		border-radius: 8px;
+		background: rgba(255, 255, 255, 0.03);
+		color: var(--fontColor);
+		font-size: 0.92rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition:
+			background-color 140ms ease,
+			border-color 140ms ease;
+	}
+	.dismissSyncBtn:hover {
+		background: rgba(255, 255, 255, 0.08);
+		border-color: var(--borderColorSoft);
+	}
+	@keyframes syncAllPulse {
+		0%,
+		100% {
+			box-shadow:
+				0 0 0 1px rgba(255, 186, 80, 0.22),
+				0 8px 18px rgba(255, 130, 80, 0.18);
+		}
+		50% {
+			box-shadow:
+				0 0 0 1px rgba(255, 210, 130, 0.45),
+				0 12px 26px rgba(255, 130, 80, 0.32);
+		}
 	}
 	.future-changes-header {
 		display: flex;
