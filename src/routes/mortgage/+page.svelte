@@ -1,7 +1,16 @@
 <script>
 	import { onMount } from 'svelte';
 	import { LineChart } from '../../lib';
+	import {
+		createServerSync,
+		readLocalSnapshot,
+		writeLocalSnapshot
+	} from '$lib/calculatorPersistence.js';
 	const STORAGE_KEY = 'mortgage-calculator-v1';
+	const CALCULATOR_KEY = 'mortgage';
+	const SCHEMA_VERSION = 'v1';
+	let { data } = $props();
+	const syncCalculatorData = createServerSync(CALCULATOR_KEY, SCHEMA_VERSION);
 	let principal = $state(0);
 	let downPayment = $state(0);
 	let downPaymentPercentage = $state(0);
@@ -20,6 +29,7 @@
 	];
 	const recurringFrequencyValues = recurringFrequencyOptions.map((option) => option.value);
 	let hydrated = $state(false);
+	let appliedServerUpdatedAt = $state(null);
 	let monthlyEscrowPayment = $state(0);
 	let monthlyAssistance = $state(0);
 	let assistanceEditValue = $state('');
@@ -100,12 +110,6 @@
 	let extraMonthlyPmi = $derived.by(() =>
 		calculateMonthlyPmi(loanAmount, principal, pmiInputMode, pmiRate, pmiDollarAmount)
 	);
-	let baselinePmiEndMonth = $derived.by(() =>
-		getPmiEndMonth(baselinePayments, loanAmount, principal, pmiLtvThreshold)
-	);
-	let extraPmiEndMonth = $derived.by(() => null);
-	let baselinePmiEndDate = $derived.by(() => getCompletionDate(startDate, baselinePmiEndMonth));
-	let extraPmiEndDate = $derived.by(() => activeExtraScenarioSummary?.pmiEndDate ?? null);
 	let baselineTotalMonthlyPayment = $derived.by(() =>
 		Math.max(
 			0,
@@ -129,14 +133,6 @@
 	);
 	let baselineChartPoints = $derived.by(() => {
 		return baselinePayments
-			.map((payment) => ({
-				x: new Date(startDate.getFullYear(), startDate.getMonth() + (payment.month - 1)).getTime(),
-				y: +payment.remainingBalance.toFixed(2)
-			}))
-			.filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
-	});
-	let extraChartPoints = $derived.by(() => {
-		return (activeExtraScenarioSummary?.payments ?? [])
 			.map((payment) => ({
 				x: new Date(startDate.getFullYear(), startDate.getMonth() + (payment.month - 1)).getTime(),
 				y: +payment.remainingBalance.toFixed(2)
@@ -235,8 +231,12 @@
 	}
 	function handleScenarioDrop(targetScenarioId) {
 		if (draggingScenarioId === null || draggingScenarioId === targetScenarioId) return;
-		const sourceIdx = extraPaymentScenarios.findIndex((scenario) => scenario.id === draggingScenarioId);
-		const targetIdx = extraPaymentScenarios.findIndex((scenario) => scenario.id === targetScenarioId);
+		const sourceIdx = extraPaymentScenarios.findIndex(
+			(scenario) => scenario.id === draggingScenarioId
+		);
+		const targetIdx = extraPaymentScenarios.findIndex(
+			(scenario) => scenario.id === targetScenarioId
+		);
 		if (sourceIdx < 0 || targetIdx < 0) return;
 		const [draggedScenario] = extraPaymentScenarios.splice(sourceIdx, 1);
 		extraPaymentScenarios.splice(targetIdx, 0, draggedScenario);
@@ -526,87 +526,72 @@
 		return payments;
 	}
 
-	onMount(() => {
-		try {
-			const raw = localStorage.getItem(STORAGE_KEY);
-			if (raw) {
-				const parsed = JSON.parse(raw);
-				principal = parseUsdInput(parsed?.principal ?? principal);
-				downPayment = parseUsdInput(parsed?.downPayment ?? downPayment);
-				interestRate = Number.isFinite(Number(parsed?.interestRate))
-					? Math.max(0, Number(parsed.interestRate))
-					: interestRate;
-				years = Number.isFinite(Number(parsed?.years)) ? Math.max(0, Number(parsed.years)) : years;
-				const parsedMonthlyEscrowPayment = parseUsdInput(parsed?.monthlyEscrowPayment);
-				if (parsedMonthlyEscrowPayment > 0) {
-					monthlyEscrowPayment = parsedMonthlyEscrowPayment;
-				} else {
-					// Backwards compatibility for older saved annual tax/insurance values
-					const parsedAnnualTaxes = parseUsdInput(parsed?.annualTaxes);
-					const parsedAnnualInsurance = parseUsdInput(parsed?.annualInsurance);
-					monthlyEscrowPayment = (parsedAnnualTaxes + parsedAnnualInsurance) / 12;
-				}
-				monthlyAssistance = parseUsdInput(parsed?.monthlyAssistance ?? monthlyAssistance);
-				pmiInputMode = parsed?.pmiInputMode === 'percentage' ? 'percentage' : 'dollar';
-				pmiRate = Number.isFinite(Number(parsed?.pmiRate))
-					? Math.max(0, Number(parsed.pmiRate))
-					: pmiRate;
-				pmiDollarAmount = parseUsdInput(parsed?.pmiDollarAmount ?? pmiDollarAmount);
-				birthdate =
-					typeof parsed?.birthdate === 'string' &&
-					!Number.isNaN(new Date(parsed.birthdate).getTime())
-						? parsed.birthdate
-						: birthdate;
-				loanOriginationDate =
-					typeof parsed?.loanOriginationDate === 'string' && parsed.loanOriginationDate
-						? parsed.loanOriginationDate
-						: loanOriginationDate;
-				if (
-					Array.isArray(parsed?.extraPaymentScenarios) &&
-					parsed.extraPaymentScenarios.length > 0
-				) {
-					extraPaymentScenarios = parsed.extraPaymentScenarios.map((scenario, idx) =>
-						normalizeExtraPaymentScenario(scenario, idx + 1)
-					);
-				} else if (
-					parseUsdInput(parsed?.extraMonthlyPayment) > 0 ||
-					(Array.isArray(parsed?.oneTimePayments) && parsed.oneTimePayments.length > 0)
-				) {
-					// Backwards compatibility for older single-scenario format
-					extraPaymentScenarios = [
-						normalizeExtraPaymentScenario(
-							{
-								id: 1,
-								name: 'Scenario 1',
-								extraMonthlyPayment: parseUsdInput(parsed?.extraMonthlyPayment),
-								oneTimePayments: Array.isArray(parsed?.oneTimePayments)
-									? parsed.oneTimePayments
-									: []
-							},
-							1
-						)
-					];
-				} else {
-					extraPaymentScenarios = [];
-				}
-				nextExtraPaymentScenarioId =
-					Math.max(0, ...extraPaymentScenarios.map((scenario) => Number(scenario.id) || 0)) + 1;
-				activeExtraScenarioId =
-					extraPaymentScenarios.find(
-						(scenario) => scenario.id === Number(parsed?.activeExtraScenarioId)
-					)?.id ??
-					extraPaymentScenarios[0]?.id ??
-					null;
-			}
-		} catch {
+	function applySnapshot(parsed) {
+		if (!parsed) return;
+		principal = parseUsdInput(parsed?.principal ?? principal);
+		downPayment = parseUsdInput(parsed?.downPayment ?? downPayment);
+		interestRate = Number.isFinite(Number(parsed?.interestRate))
+			? Math.max(0, Number(parsed.interestRate))
+			: interestRate;
+		years = Number.isFinite(Number(parsed?.years)) ? Math.max(0, Number(parsed.years)) : years;
+		const parsedMonthlyEscrowPayment = parseUsdInput(parsed?.monthlyEscrowPayment);
+		if (parsedMonthlyEscrowPayment > 0) {
+			monthlyEscrowPayment = parsedMonthlyEscrowPayment;
+		} else {
+			// Backwards compatibility for older saved annual tax/insurance values
+			const parsedAnnualTaxes = parseUsdInput(parsed?.annualTaxes);
+			const parsedAnnualInsurance = parseUsdInput(parsed?.annualInsurance);
+			monthlyEscrowPayment = (parsedAnnualTaxes + parsedAnnualInsurance) / 12;
 		}
-		updateDownPaymentPercentage();
-		hydrated = true;
-	});
+		monthlyAssistance = parseUsdInput(parsed?.monthlyAssistance ?? monthlyAssistance);
+		pmiInputMode = parsed?.pmiInputMode === 'percentage' ? 'percentage' : 'dollar';
+		pmiRate = Number.isFinite(Number(parsed?.pmiRate))
+			? Math.max(0, Number(parsed.pmiRate))
+			: pmiRate;
+		pmiDollarAmount = parseUsdInput(parsed?.pmiDollarAmount ?? pmiDollarAmount);
+		birthdate =
+			typeof parsed?.birthdate === 'string' && !Number.isNaN(new Date(parsed.birthdate).getTime())
+				? parsed.birthdate
+				: birthdate;
+		loanOriginationDate =
+			typeof parsed?.loanOriginationDate === 'string' && parsed.loanOriginationDate
+				? parsed.loanOriginationDate
+				: loanOriginationDate;
+		if (Array.isArray(parsed?.extraPaymentScenarios) && parsed.extraPaymentScenarios.length > 0) {
+			extraPaymentScenarios = parsed.extraPaymentScenarios.map((scenario, idx) =>
+				normalizeExtraPaymentScenario(scenario, idx + 1)
+			);
+		} else if (
+			parseUsdInput(parsed?.extraMonthlyPayment) > 0 ||
+			(Array.isArray(parsed?.oneTimePayments) && parsed.oneTimePayments.length > 0)
+		) {
+			// Backwards compatibility for older single-scenario format
+			extraPaymentScenarios = [
+				normalizeExtraPaymentScenario(
+					{
+						id: 1,
+						name: 'Scenario 1',
+						extraMonthlyPayment: parseUsdInput(parsed?.extraMonthlyPayment),
+						oneTimePayments: Array.isArray(parsed?.oneTimePayments) ? parsed.oneTimePayments : []
+					},
+					1
+				)
+			];
+		} else {
+			extraPaymentScenarios = [];
+		}
+		nextExtraPaymentScenarioId =
+			Math.max(0, ...extraPaymentScenarios.map((scenario) => Number(scenario.id) || 0)) + 1;
+		activeExtraScenarioId =
+			extraPaymentScenarios.find(
+				(scenario) => scenario.id === Number(parsed?.activeExtraScenarioId)
+			)?.id ??
+			extraPaymentScenarios[0]?.id ??
+			null;
+	}
 
-	$effect(() => {
-		if (!hydrated) return;
-		const snapshot = JSON.stringify({
+	function getSnapshot() {
+		return {
 			principal,
 			downPayment,
 			interestRate,
@@ -620,10 +605,47 @@
 			pmiDollarAmount,
 			birthdate,
 			loanOriginationDate
-		});
-		try {
-			localStorage.setItem(STORAGE_KEY, snapshot);
-		} catch {}
+		};
+	}
+
+	function getServerSnapshot() {
+		return data.calculatorData?.[CALCULATOR_KEY] ?? null;
+	}
+
+	function hasPendingServerSnapshot() {
+		const serverSnapshot = getServerSnapshot();
+		return Boolean(
+			serverSnapshot?.updatedAt && serverSnapshot.updatedAt !== appliedServerUpdatedAt
+		);
+	}
+
+	onMount(() => {
+		const serverSnapshot = getServerSnapshot();
+		if (serverSnapshot?.payload) {
+			applySnapshot(serverSnapshot.payload);
+			appliedServerUpdatedAt = serverSnapshot.updatedAt;
+		} else {
+			applySnapshot(readLocalSnapshot(STORAGE_KEY));
+		}
+		updateDownPaymentPercentage();
+		hydrated = true;
+	});
+
+	$effect(() => {
+		if (!hydrated || !hasPendingServerSnapshot()) return;
+		const serverSnapshot = getServerSnapshot();
+		applySnapshot(serverSnapshot.payload);
+		appliedServerUpdatedAt = serverSnapshot.updatedAt;
+		updateDownPaymentPercentage();
+	});
+
+	$effect(() => {
+		if (!hydrated) return;
+		const snapshot = getSnapshot();
+		writeLocalSnapshot(STORAGE_KEY, snapshot);
+		if (data.user && !hasPendingServerSnapshot()) {
+			syncCalculatorData(snapshot);
+		}
 	});
 </script>
 
@@ -783,7 +805,11 @@
 							ondragend={handleScenarioDragEnd}
 						>
 							<div class="scenarioCardHeader">
-								<button type="button" class="dragHandleButton" aria-label="Drag to reorder scenario">
+								<button
+									type="button"
+									class="dragHandleButton"
+									aria-label="Drag to reorder scenario"
+								>
 									:::
 								</button>
 								<input type="text" bind:value={scenario.name} class="scenarioNameInput" />

@@ -1,11 +1,18 @@
 <script>
 	import { LineChart, NumberOrRange } from '$lib';
+	import {
+		createServerSync,
+		readLocalSnapshot,
+		writeLocalSnapshot
+	} from '$lib/calculatorPersistence.js';
 	import { flip } from 'svelte/animate';
 	import { fade, fly } from 'svelte/transition';
 	import { onMount } from 'svelte';
 	import { currentAge, computeResults, calculateSuggestedWithdrawalRate } from '$lib/retirement.js';
 
 	const STORAGE_KEY = 'retirement-scenarios-v2';
+	const CALCULATOR_KEY = 'retirement';
+	const SCHEMA_VERSION = 'v2';
 	const PALETTE = ['#4bc0c0', '#ff9f40', '#9966ff', '#ff6384', '#36a2eb', '#ffce56', '#8ed081'];
 	const TAX_PRESETS = {
 		custom: { label: 'Custom' },
@@ -29,6 +36,8 @@
 		{ value: 6, label: 'Every 6 months' },
 		{ value: 12, label: 'Annually' }
 	];
+	let { data } = $props();
+	const syncCalculatorData = createServerSync(CALCULATOR_KEY, SCHEMA_VERSION);
 
 	function toInputDateString(date) {
 		const year = date.getFullYear();
@@ -103,10 +112,11 @@
 		{ id: 2, label: 'Retire at 67', ...makeDefaults({ retirementAge: 67, monthlySS: 3468 }) }
 	]);
 	let activeScenarioId = $state(1);
-let draggingScenarioId = $state(null);
+	let draggingScenarioId = $state(null);
 	let nextId = 3;
 	let nextFutureChangeId = 1;
 	let hydrated = $state(false);
+	let appliedServerUpdatedAt = $state(null);
 
 	function normalizeFutureChange(change, fallbackId) {
 		const startDate = startDateFromChange(change);
@@ -168,34 +178,61 @@ let draggingScenarioId = $state(null);
 		return merged;
 	}
 
+	function applySnapshot(parsed) {
+		if (Array.isArray(parsed?.scenarios) && parsed.scenarios.length) {
+			scenarios = parsed.scenarios.map(migrateScenario);
+			activeScenarioId = parsed.activeScenarioId ?? scenarios[0].id;
+			nextId = Math.max(...scenarios.map((s) => s.id)) + 1;
+			const maxFutureChangeId = Math.max(
+				0,
+				...scenarios.flatMap((scenario) =>
+					(scenario.futureChanges ?? []).map((change) => change.id ?? 0)
+				)
+			);
+			nextFutureChangeId = maxFutureChangeId + 1;
+		}
+	}
+
+	function getSnapshot() {
+		return { scenarios, activeScenarioId };
+	}
+
+	function getServerSnapshot() {
+		return data.calculatorData?.[CALCULATOR_KEY] ?? null;
+	}
+
+	function hasPendingServerSnapshot() {
+		const serverSnapshot = getServerSnapshot();
+		return Boolean(
+			serverSnapshot?.updatedAt && serverSnapshot.updatedAt !== appliedServerUpdatedAt
+		);
+	}
+
 	onMount(() => {
-		try {
-			const raw = localStorage.getItem(STORAGE_KEY);
-			if (raw) {
-				const parsed = JSON.parse(raw);
-				if (Array.isArray(parsed.scenarios) && parsed.scenarios.length) {
-					scenarios = parsed.scenarios.map(migrateScenario);
-					activeScenarioId = parsed.activeScenarioId ?? scenarios[0].id;
-					nextId = Math.max(...scenarios.map((s) => s.id)) + 1;
-					const maxFutureChangeId = Math.max(
-						0,
-						...scenarios.flatMap((scenario) =>
-							(scenario.futureChanges ?? []).map((change) => change.id ?? 0)
-						)
-					);
-					nextFutureChangeId = maxFutureChangeId + 1;
-				}
-			}
-		} catch {}
+		const serverSnapshot = getServerSnapshot();
+		if (serverSnapshot?.payload) {
+			applySnapshot(serverSnapshot.payload);
+			appliedServerUpdatedAt = serverSnapshot.updatedAt;
+		} else {
+			applySnapshot(readLocalSnapshot(STORAGE_KEY));
+		}
 		hydrated = true;
 	});
 
 	$effect(() => {
+		if (!hydrated || !hasPendingServerSnapshot()) return;
+		const serverSnapshot = getServerSnapshot();
+		applySnapshot(serverSnapshot.payload);
+		appliedServerUpdatedAt = serverSnapshot.updatedAt;
+	});
+
+	$effect(() => {
 		if (!hydrated) return;
-		const snapshot = JSON.stringify({ scenarios, activeScenarioId });
-		try {
-			localStorage.setItem(STORAGE_KEY, snapshot);
-		} catch {}
+		const snapshot = getSnapshot();
+		writeLocalSnapshot(STORAGE_KEY, snapshot);
+		if (data.user && !hasPendingServerSnapshot()) {
+			syncCalculatorData(snapshot);
+		}
 	});
 
 	let activeScenario = $derived(scenarios.find((s) => s.id === activeScenarioId) ?? scenarios[0]);
@@ -526,23 +563,23 @@ let draggingScenarioId = $state(null);
 		scenarios.splice(idx, 1);
 		if (activeScenarioId === id) activeScenarioId = scenarios[0].id;
 	}
-function handleScenarioTabDragStart(scenarioId) {
-	draggingScenarioId = scenarioId;
-}
-function handleScenarioTabDragOver(event) {
-	event.preventDefault();
-}
-function handleScenarioTabDrop(targetScenarioId) {
-	if (draggingScenarioId === null || draggingScenarioId === targetScenarioId) return;
-	const sourceIdx = scenarios.findIndex((scenario) => scenario.id === draggingScenarioId);
-	const targetIdx = scenarios.findIndex((scenario) => scenario.id === targetScenarioId);
-	if (sourceIdx < 0 || targetIdx < 0) return;
-	const [draggedScenario] = scenarios.splice(sourceIdx, 1);
-	scenarios.splice(targetIdx, 0, draggedScenario);
-}
-function handleScenarioTabDragEnd() {
-	draggingScenarioId = null;
-}
+	function handleScenarioTabDragStart(scenarioId) {
+		draggingScenarioId = scenarioId;
+	}
+	function handleScenarioTabDragOver(event) {
+		event.preventDefault();
+	}
+	function handleScenarioTabDrop(targetScenarioId) {
+		if (draggingScenarioId === null || draggingScenarioId === targetScenarioId) return;
+		const sourceIdx = scenarios.findIndex((scenario) => scenario.id === draggingScenarioId);
+		const targetIdx = scenarios.findIndex((scenario) => scenario.id === targetScenarioId);
+		if (sourceIdx < 0 || targetIdx < 0) return;
+		const [draggedScenario] = scenarios.splice(sourceIdx, 1);
+		scenarios.splice(targetIdx, 0, draggedScenario);
+	}
+	function handleScenarioTabDragEnd() {
+		draggingScenarioId = null;
+	}
 
 	function resetAll() {
 		if (!confirm('Reset all scenarios to defaults?')) return;
@@ -668,7 +705,11 @@ function handleScenarioTabDragEnd() {
 							/>
 						</div>
 						{#if showUpdateAllScenariosButton}
-							<div class="field syncAllField" in:fly={{ y: 12, duration: 220 }} out:fade={{ duration: 160 }}>
+							<div
+								class="field syncAllField"
+								in:fly={{ y: 12, duration: 220 }}
+								out:fade={{ duration: 160 }}
+							>
 								<label class="field-label" for="syncSharedValuesBtn">Scenario Sync</label>
 								<div class="syncAllActions">
 									<button

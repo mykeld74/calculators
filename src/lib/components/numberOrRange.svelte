@@ -1,14 +1,7 @@
 <script>
 	import { getContext } from 'svelte';
 
-	let {
-		id,
-		value = $bindable(),
-		min,
-		max,
-		step,
-		disabled = false
-	} = $props();
+	let { id, value = $bindable(), min, max, step, disabled = false } = $props();
 
 	const isMobileStore = getContext('isMobile');
 	let isMobile = $state(false);
