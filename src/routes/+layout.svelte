@@ -253,7 +253,7 @@
 		}
 
 		main {
-			padding: 4.5rem 1rem 1rem;
+			padding: 4.25rem 0.75rem 1rem;
 		}
 
 		.mobileMenuButton {

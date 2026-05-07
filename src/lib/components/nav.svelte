@@ -7,19 +7,6 @@
 </script>
 
 <nav class="nav" class:collapsed aria-label="Calculator navigation">
-	<a class="brand" href="/" title="Calculators" aria-label="Calculators">
-		<span class="brandMark" aria-hidden="true">
-			<svg viewBox="0 0 24 24">
-				<path d="M7 3h10a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z" />
-				<path d="M8 7h8" />
-				<path d="M8 11h2" />
-				<path d="M14 11h2" />
-				<path d="M8 15h2" />
-				<path d="M14 15h2" />
-			</svg>
-		</span>
-		<span class="navText">Calculators</span>
-	</a>
 	<div class="navLinks">
 		{#each pages as page (page.href)}
 			<a

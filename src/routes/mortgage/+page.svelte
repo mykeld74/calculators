@@ -879,7 +879,7 @@
 																id={`payment-frequency-${scenario.id}-${payment.id}`}
 																bind:value={payment.recurringFrequencyMonths}
 															>
-																{#each recurringFrequencyOptions as option}
+																{#each recurringFrequencyOptions as option (option.value)}
 																	<option value={option.value}>{option.label}</option>
 																{/each}
 															</select>
@@ -991,20 +991,20 @@
 				<tbody>
 					<tr>
 						<td>Monthly P&I Payment:</td>
-						<td>
+						<td data-label={hasExtraScenario ? 'Without extra' : 'Results'}>
 							{(baselinePayments[0]?.payment || 0).toLocaleString('en-US', {
 								style: 'currency',
 								currency: 'USD'
 							})}
 						</td>
 						{#if hasExtraScenario}
-							<td>
+							<td data-label={activeExtraScenarioSummary?.name ?? 'Selected scenario'}>
 								{(activeExtraScenarioSummary?.payments[0]?.payment || 0).toLocaleString('en-US', {
 									style: 'currency',
 									currency: 'USD'
 								})}
 							</td>
-							<td>
+							<td data-label="Difference">
 								{(
 									(activeExtraScenarioSummary?.payments[0]?.payment || 0) -
 									(baselinePayments[0]?.payment || 0)
@@ -1014,7 +1014,7 @@
 					</tr>
 					<tr>
 						<td>Escrow Payment:</td>
-						<td colspan="1"
+						<td data-label={hasExtraScenario ? 'Without extra' : 'Results'} colspan="1"
 							>{monthlyEscrowPayment.toLocaleString('en-US', {
 								style: 'currency',
 								currency: 'USD'
@@ -1027,20 +1027,20 @@
 					{#if baselineMonthlyPmi > 0 || extraMonthlyPmi > 0}
 						<tr>
 							<td>Monthly PMI:</td>
-							<td
+							<td data-label={hasExtraScenario ? 'Without extra' : 'Results'}
 								>{baselineMonthlyPmi.toLocaleString('en-US', {
 									style: 'currency',
 									currency: 'USD'
 								})}</td
 							>
 							{#if hasExtraScenario}
-								<td
+								<td data-label={activeExtraScenarioSummary?.name ?? 'Selected scenario'}
 									>{extraMonthlyPmi.toLocaleString('en-US', {
 										style: 'currency',
 										currency: 'USD'
 									})}</td
 								>
-								<td>
+								<td data-label="Difference">
 									{(baselineMonthlyPmi - extraMonthlyPmi).toLocaleString('en-US', {
 										style: 'currency',
 										currency: 'USD'
@@ -1052,39 +1052,41 @@
 					{#if monthlyAssistance > 0}
 						<tr>
 							<td>Assistance:</td>
-							<td
+							<td data-label={hasExtraScenario ? 'Without extra' : 'Results'}
 								>{(monthlyAssistance * -1).toLocaleString('en-US', {
 									style: 'currency',
 									currency: 'USD'
 								})}</td
 							>
 							{#if hasExtraScenario}
-								<td
+								<td data-label={activeExtraScenarioSummary?.name ?? 'Selected scenario'}
 									>{(monthlyAssistance * -1).toLocaleString('en-US', {
 										style: 'currency',
 										currency: 'USD'
 									})}</td
 								>
-								<td>{(0).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}</td>
+								<td data-label="Difference"
+									>{(0).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}</td
+								>
 							{/if}
 						</tr>
 					{/if}
 					<tr>
 						<td>Total Monthly Payment:</td>
-						<td
+						<td data-label={hasExtraScenario ? 'Without extra' : 'Results'}
 							>{baselineTotalMonthlyPayment.toLocaleString('en-US', {
 								style: 'currency',
 								currency: 'USD'
 							})}</td
 						>
 						{#if hasExtraScenario}
-							<td
+							<td data-label={activeExtraScenarioSummary?.name ?? 'Selected scenario'}
 								>{extraTotalMonthlyPayment.toLocaleString('en-US', {
 									style: 'currency',
 									currency: 'USD'
 								})}</td
 							>
-							<td>
+							<td data-label="Difference">
 								{(extraTotalMonthlyPayment - baselineTotalMonthlyPayment).toLocaleString('en-US', {
 									style: 'currency',
 									currency: 'USD'
@@ -1094,17 +1096,17 @@
 					</tr>
 					<tr>
 						<td>Total P&I Paid:</td>
-						<td>
+						<td data-label={hasExtraScenario ? 'Without extra' : 'Results'}>
 							{totalAmountPaid.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}
 						</td>
 						{#if hasExtraScenario}
-							<td>
+							<td data-label={activeExtraScenarioSummary?.name ?? 'Selected scenario'}>
 								{totalAmountPaidWithExtra.toLocaleString('en-US', {
 									style: 'currency',
 									currency: 'USD'
 								})}
 							</td>
-							<td>
+							<td data-label="Difference">
 								{((totalAmountPaidWithExtra - totalAmountPaid) * -1).toLocaleString('en-US', {
 									style: 'currency',
 									currency: 'USD'
@@ -1114,17 +1116,17 @@
 					</tr>
 					<tr>
 						<td>Total Interest Paid:</td>
-						<td>
+						<td data-label={hasExtraScenario ? 'Without extra' : 'Results'}>
 							{baselineTotalInterest.toLocaleString('en-US', {
 								style: 'currency',
 								currency: 'USD'
 							})}
 						</td>
 						{#if hasExtraScenario}
-							<td>
+							<td data-label={activeExtraScenarioSummary?.name ?? 'Selected scenario'}>
 								{extraTotalInterest.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}
 							</td>
-							<td>
+							<td data-label="Difference">
 								{(baselineTotalInterest - extraTotalInterest).toLocaleString('en-US', {
 									style: 'currency',
 									currency: 'USD'
@@ -1134,10 +1136,14 @@
 					</tr>
 					<tr>
 						<td>Number of Payments:</td>
-						<td>{baselinePayments.length} ({(baselinePayments.length / 12).toFixed(2)} years)</td>
+						<td data-label={hasExtraScenario ? 'Without extra' : 'Results'}
+							>{baselinePayments.length} ({(baselinePayments.length / 12).toFixed(2)} years)</td
+						>
 						{#if hasExtraScenario}
-							<td>{totalNumberOfPayments} ({(totalNumberOfPayments / 12).toFixed(2)} years)</td>
-							<td
+							<td data-label={activeExtraScenarioSummary?.name ?? 'Selected scenario'}
+								>{totalNumberOfPayments} ({(totalNumberOfPayments / 12).toFixed(2)} years)</td
+							>
+							<td data-label="Difference"
 								>{baselinePayments.length - totalNumberOfPayments} ({(
 									(baselinePayments.length - totalNumberOfPayments) /
 									12
@@ -1147,10 +1153,14 @@
 					</tr>
 					<tr>
 						<td>Loan Completion Date:</td>
-						<td>{formatCompletionDate(baselineCompletionDate)}</td>
+						<td data-label={hasExtraScenario ? 'Without extra' : 'Results'}
+							>{formatCompletionDate(baselineCompletionDate)}</td
+						>
 						{#if hasExtraScenario}
-							<td>{formatCompletionDate(extraCompletionDate)}</td>
-							<td>
+							<td data-label={activeExtraScenarioSummary?.name ?? 'Selected scenario'}
+								>{formatCompletionDate(extraCompletionDate)}</td
+							>
+							<td data-label="Difference">
 								{#if baselineCompletionDate && extraCompletionDate}
 									{Math.max(
 										(baselineCompletionDate.getFullYear() - extraCompletionDate.getFullYear()) *
@@ -1231,6 +1241,8 @@
 	.form-group input[type='number'],
 	.form-group input[type='date'],
 	.form-group select {
+		width: 100%;
+		max-width: 100%;
 		height: 2.6rem;
 		font-size: 1.1rem;
 	}
@@ -1286,8 +1298,10 @@
 		gap: 0.75rem;
 		align-items: center;
 		margin-bottom: 1rem;
+		flex-wrap: wrap;
 	}
 	.activeScenarioSelector select {
+		width: 100%;
 		max-width: 320px;
 	}
 	.pmiInputRow {
@@ -1563,5 +1577,125 @@
 	}
 	.chart-panel :global(canvas) {
 		max-width: 100%;
+	}
+	@media (max-width: 640px) {
+		.panel {
+			padding: 0;
+			border: none;
+			border-radius: 0;
+		}
+		.scenario-form {
+			gap: 1rem;
+		}
+		.group {
+			padding: 0.85rem 0.75rem 1rem;
+		}
+		.group-grid,
+		.oneTimePaymentsList,
+		.oneTimePaymentMain,
+		.oneTimePaymentRecurringRow {
+			gap: 0.85rem;
+		}
+		.alignedInputsGrid > .form-group > label {
+			min-height: 0;
+		}
+		.pmiModeOptions {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 0.5rem 0.75rem;
+			margin: 0.35rem 0 0;
+			width: 100%;
+		}
+		.scenarioCard {
+			padding: 0.75rem;
+		}
+		.scenarioCardHeader {
+			display: grid;
+			grid-template-columns: auto minmax(0, 1fr);
+			gap: 0.6rem;
+		}
+		.scenarioCardActions {
+			grid-column: 1 / -1;
+			display: flex;
+			justify-content: flex-end;
+		}
+		.scenarioNameInput {
+			min-width: 0;
+			width: 100%;
+		}
+		.addPaymentButton,
+		.removePaymentButton {
+			min-height: 2.4rem;
+		}
+		.addPaymentButton {
+			width: 100%;
+		}
+		.activeScenarioSelector {
+			align-items: stretch;
+		}
+		.activeScenarioSelector select {
+			max-width: none;
+		}
+		.results .monthlyPaymentCard {
+			padding: 0.75rem;
+		}
+		.results .monthlyPaymentCard strong {
+			font-size: 1.25rem;
+			word-break: break-word;
+		}
+		.results table,
+		.results thead,
+		.results tbody,
+		.results tr,
+		.results td {
+			display: block;
+			width: 100%;
+		}
+		.results table {
+			margin: 0.75rem 0 0;
+		}
+		.results thead {
+			display: none;
+		}
+		.results tr {
+			border: 1px solid var(--borderColorSoft);
+			border-radius: 8px;
+			padding: 0.65rem 0.75rem;
+			margin-bottom: 0.75rem;
+			background: rgba(255, 255, 255, 0.02);
+		}
+		.results td {
+			display: flex;
+			justify-content: space-between;
+			gap: 1rem;
+			padding: 0.4rem 0;
+			border-bottom: 1px dashed var(--borderColorSoft);
+			text-align: right;
+			word-break: break-word;
+		}
+		.results td:first-child {
+			display: block;
+			padding-top: 0;
+			color: var(--fontColor);
+			font-weight: 700;
+			text-align: left;
+			font-family: 'Roboto Slab', serif;
+		}
+		.results td:first-child::before {
+			display: none;
+		}
+		.results td:last-child {
+			border-bottom: none;
+		}
+		.results td:empty {
+			display: none;
+		}
+		.results td::before {
+			content: attr(data-label);
+			color: var(--tableFontColor);
+			font-family: 'Open Sans', sans-serif;
+			font-weight: 500;
+			text-align: left;
+		}
 	}
 </style>

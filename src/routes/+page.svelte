@@ -609,8 +609,19 @@
 	<h1>Retirement Calculator</h1>
 
 	<section class="panel">
-		<div class="tabs-header">
-			<div class="tabs" role="tablist">
+		<div class="scenario-manager" aria-labelledby="scenariosHeading">
+			<div class="scenario-manager-header">
+				<div>
+					<h2 id="scenariosHeading">Scenarios</h2>
+					<p>Switch, duplicate, or compare retirement paths.</p>
+				</div>
+				<div class="tab-actions">
+					<button type="button" class="ghost-btn" onclick={addScenario}>+ Add</button>
+					<button type="button" class="ghost-btn" onclick={duplicateScenario}>Duplicate</button>
+					<button type="button" class="ghost-btn danger" onclick={resetAll}>Reset</button>
+				</div>
+			</div>
+			<div class="tabs" role="tablist" aria-label="Scenarios">
 				{#each scenarios as scenario, idx (scenario.id)}
 					<button
 						type="button"
@@ -631,11 +642,6 @@
 						{scenario.label}
 					</button>
 				{/each}
-			</div>
-			<div class="tab-actions">
-				<button type="button" class="ghost-btn" onclick={addScenario}>+ Add</button>
-				<button type="button" class="ghost-btn" onclick={duplicateScenario}>Duplicate</button>
-				<button type="button" class="ghost-btn danger" onclick={resetAll}>Reset</button>
 			</div>
 		</div>
 
@@ -1710,13 +1716,26 @@
 		margin: 0;
 	}
 
-	.tabs-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
+	.scenario-manager {
+		display: grid;
 		gap: 1rem;
 		margin-bottom: 1.25rem;
+	}
+	.scenario-manager-header {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 1rem;
 		flex-wrap: wrap;
+	}
+	.scenario-manager-header h2 {
+		margin: 0;
+		font-size: clamp(1.25rem, 0.9rem + 1vw, 1.65rem);
+	}
+	.scenario-manager-header p {
+		margin: 0.25rem 0 0;
+		color: var(--tableFontColor);
+		font-size: 0.95rem;
 	}
 	.tabs {
 		display: flex;
@@ -1914,7 +1933,9 @@
 	}
 	@media (max-width: 640px) {
 		.panel {
-			padding: 1rem;
+			padding: 0;
+			border: none;
+			border-radius: 0;
 		}
 		.tabs {
 			width: 100%;
@@ -1922,9 +1943,6 @@
 		.tab {
 			flex: 1 1 100%;
 			justify-content: flex-start;
-		}
-		.tabs-header {
-			gap: 0.75rem;
 		}
 		.field label,
 		.field-label {
