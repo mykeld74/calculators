@@ -128,7 +128,13 @@
 				<ThemePicker collapsed={sidebarCollapsed} onSetTheme={(theme) => setTheme(theme)} />
 			</div>
 		</aside>
-		<main>{@render children()}</main>
+		<main>
+			{@render children()}
+			<footer class="siteDisclaimer">
+				These projections are estimates only and are not guaranteed. This website is not responsible
+				for any calculations, projections, or decisions made using these tools.
+			</footer>
+		</main>
 	</div>
 {/if}
 
@@ -217,8 +223,21 @@
 	}
 
 	main {
+		display: flex;
+		flex-direction: column;
+		gap: 2rem;
 		min-width: 0;
 		padding: 1.5rem;
+	}
+
+	.siteDisclaimer {
+		width: min(100%, 1100px);
+		margin: 0 auto;
+		color: var(--tableFontColor);
+		font-size: 0.75rem;
+		line-height: 1.45;
+		text-align: center;
+		opacity: 0.8;
 	}
 
 	@media (max-width: 768px) {

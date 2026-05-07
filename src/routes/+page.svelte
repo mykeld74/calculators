@@ -602,7 +602,7 @@
 </script>
 
 <svelte:head>
-	<title>Retirement Calculator | Big Bearded Dev</title>
+	<title>Retirement Calculator</title>
 </svelte:head>
 
 <div class="container">

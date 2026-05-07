@@ -650,7 +650,7 @@
 </script>
 
 <svelte:head>
-	<title>Mortgage Calculator | Big Bearded Dev</title>
+	<title>Mortgage Calculator</title>
 </svelte:head>
 
 <div class="container">
