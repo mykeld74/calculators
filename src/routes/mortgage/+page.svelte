@@ -31,6 +31,8 @@
 	let hydrated = $state(false);
 	let appliedServerUpdatedAt = $state(null);
 	let monthlyEscrowPayment = $state(0);
+	let escrowAdjustments = $state([]);
+	let nextEscrowAdjustmentId = 1;
 	let monthlyAssistance = $state(0);
 	let assistanceEditValue = $state('');
 	let assistanceInputFocused = $state(false);
@@ -47,6 +49,16 @@
 		const parsedStartDate = new Date(loanOriginationDate);
 		return Number.isNaN(parsedStartDate.getTime()) ? new Date() : parsedStartDate;
 	});
+	let displayPaymentMonth = $derived.by(() => {
+		const today = new Date();
+		const monthOffset =
+			(today.getFullYear() - startDate.getFullYear()) * 12 +
+			(today.getMonth() - startDate.getMonth()) +
+			1;
+		return Math.max(1, monthOffset);
+	});
+	let hasEscrowAdjustments = $derived(escrowAdjustments.length > 0);
+	let currentEscrowPayment = $derived(getEscrowForPaymentMonth(displayPaymentMonth));
 	let extraScenarioSummaries = $derived.by(() =>
 		extraPaymentScenarios.map((scenario) => {
 			const scenarioPayments = calculateMonthlyPayment(
@@ -55,7 +67,8 @@
 				years,
 				scenario.extraMonthlyPayment,
 				startDate,
-				scenario.oneTimePayments
+				scenario.oneTimePayments,
+				scenario.extraMonthlyPaymentStartDate
 			);
 			const totalInterest = scenarioPayments[scenarioPayments.length - 1]?.totalInterest ?? 0;
 			const totalAmountPaid = loanAmount + totalInterest;
@@ -63,12 +76,13 @@
 			const completionDate = getCompletionDate(startDate, completionMonth);
 			const pmiEndMonth = getPmiEndMonth(scenarioPayments, loanAmount, principal, pmiLtvThreshold);
 			const pmiEndDate = getCompletionDate(startDate, pmiEndMonth);
-			const totalMonthlyPayment = Math.max(
-				0,
-				(scenarioPayments[0]?.payment || 0) +
-					monthlyEscrowPayment +
-					baselineMonthlyPmi -
-					monthlyAssistance
+			const piPayment =
+				scenarioPayments[Math.min(displayPaymentMonth - 1, scenarioPayments.length - 1)]
+					?.payment || 0;
+			const totalMonthlyPayment = calculateTotalMonthlyPayment(
+				piPayment,
+				displayPaymentMonth,
+				baselineMonthlyPmi
 			);
 			return {
 				id: scenario.id,
@@ -110,24 +124,18 @@
 	let extraMonthlyPmi = $derived.by(() =>
 		calculateMonthlyPmi(loanAmount, principal, pmiInputMode, pmiRate, pmiDollarAmount)
 	);
-	let baselineTotalMonthlyPayment = $derived.by(() =>
-		Math.max(
-			0,
-			(baselinePayments[0]?.payment || 0) +
-				monthlyEscrowPayment +
-				baselineMonthlyPmi -
-				monthlyAssistance
-		)
-	);
-	let extraTotalMonthlyPayment = $derived.by(() =>
-		Math.max(
-			0,
-			(activeExtraScenarioSummary?.payments[0]?.payment || 0) +
-				monthlyEscrowPayment +
-				extraMonthlyPmi -
-				monthlyAssistance
-		)
-	);
+	let baselineTotalMonthlyPayment = $derived.by(() => {
+		const piPayment =
+			baselinePayments[Math.min(displayPaymentMonth - 1, baselinePayments.length - 1)]
+				?.payment || 0;
+		return calculateTotalMonthlyPayment(piPayment, displayPaymentMonth, baselineMonthlyPmi);
+	});
+	let extraTotalMonthlyPayment = $derived.by(() => {
+		const extraPayments = activeExtraScenarioSummary?.payments ?? [];
+		const piPayment =
+			extraPayments[Math.min(displayPaymentMonth - 1, extraPayments.length - 1)]?.payment || 0;
+		return calculateTotalMonthlyPayment(piPayment, displayPaymentMonth, extraMonthlyPmi);
+	});
 	let assistanceInputValue = $derived.by(() =>
 		assistanceInputFocused ? assistanceEditValue : formatUsdInput(monthlyAssistance, 2)
 	);
@@ -200,12 +208,81 @@
 	function monthKey(date) {
 		return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 	}
+	function getEscrowForDate(monthDate) {
+		let amount = monthlyEscrowPayment;
+		const targetKey = monthKey(
+			new Date(monthDate.getFullYear(), monthDate.getMonth(), 1)
+		);
+		const loanStartKey = monthKey(
+			new Date(startDate.getFullYear(), startDate.getMonth(), 1)
+		);
+		const sortedAdjustments = [...escrowAdjustments].sort((a, b) =>
+			String(a.date).localeCompare(String(b.date))
+		);
+		for (const adjustment of sortedAdjustments) {
+			const adjustmentDate = parseIsoDateString(adjustment.date);
+			if (!adjustmentDate) continue;
+			const adjustmentKey = monthKey(
+				new Date(adjustmentDate.getFullYear(), adjustmentDate.getMonth(), 1)
+			);
+			if (adjustmentKey >= loanStartKey && adjustmentKey <= targetKey) {
+				amount = parseUsdInput(adjustment.monthlyAmount);
+			}
+		}
+		return amount;
+	}
+	function getEscrowForPaymentMonth(paymentMonth) {
+		const safeMonth = Number.isFinite(Number(paymentMonth)) ? Math.max(1, Math.round(paymentMonth)) : 1;
+		const monthDate = new Date(
+			startDate.getFullYear(),
+			startDate.getMonth() + (safeMonth - 1),
+			1
+		);
+		return getEscrowForDate(monthDate);
+	}
+	function calculateTotalMonthlyPayment(piPayment, paymentMonth, monthlyPmi) {
+		return Math.max(
+			0,
+			(Number(piPayment) || 0) +
+				getEscrowForPaymentMonth(paymentMonth) +
+				(Number(monthlyPmi) || 0) -
+				monthlyAssistance
+		);
+	}
+	function addEscrowAdjustment() {
+		escrowAdjustments.push({
+			id: nextEscrowAdjustmentId++,
+			date: loanOriginationDate || new Date().toISOString().split('T')[0],
+			monthlyAmount: monthlyEscrowPayment
+		});
+	}
+	function removeEscrowAdjustment(id) {
+		const idx = escrowAdjustments.findIndex((adjustment) => adjustment.id === id);
+		if (idx >= 0) escrowAdjustments.splice(idx, 1);
+	}
+	function updateEscrowAdjustmentAmount(adjustment, rawValue) {
+		adjustment.monthlyAmount = parseUsdInput(rawValue);
+	}
+	function normalizeEscrowAdjustment(adjustment, fallbackId) {
+		const parsedDate = new Date(adjustment?.date);
+		return {
+			id: Number.isInteger(adjustment?.id) ? adjustment.id : fallbackId,
+			date: Number.isNaN(parsedDate.getTime())
+				? loanOriginationDate || new Date().toISOString().split('T')[0]
+				: adjustment.date,
+			monthlyAmount: parseUsdInput(adjustment?.monthlyAmount)
+		};
+	}
+	function getDefaultScenarioDate() {
+		return loanOriginationDate || new Date().toISOString().split('T')[0];
+	}
 	function createExtraPaymentScenario(name = '') {
 		const scenarioId = nextExtraPaymentScenarioId++;
 		return {
 			id: scenarioId,
 			name: name || `Scenario ${scenarioId}`,
 			extraMonthlyPayment: 0,
+			extraMonthlyPaymentStartDate: getDefaultScenarioDate(),
 			oneTimePayments: [],
 			nextOneTimePaymentId: 1
 		};
@@ -299,6 +376,12 @@
 					? scenario.name.trim()
 					: `Scenario ${fallbackId}`,
 			extraMonthlyPayment: parseUsdInput(scenario?.extraMonthlyPayment),
+			extraMonthlyPaymentStartDate: (() => {
+				const parsedStartDate = parseIsoDateString(scenario?.extraMonthlyPaymentStartDate);
+				return parsedStartDate
+					? scenario.extraMonthlyPaymentStartDate
+					: getDefaultScenarioDate();
+			})(),
 			oneTimePayments: Array.isArray(scenario?.oneTimePayments)
 				? scenario.oneTimePayments.map((payment, idx) => normalizeOneTimePayment(payment, idx + 1))
 				: [],
@@ -420,7 +503,8 @@
 		years,
 		extraPayment = 0,
 		scheduleStartDate = new Date(),
-		extraDatePayments = []
+		extraDatePayments = [],
+		extraPaymentStartDate = null
 	) {
 		const loanAmountValue = Number(loanAmount);
 		const interestRateValue = Number(interestRate);
@@ -435,6 +519,17 @@
 		const safeExtraPayment = Number.isFinite(extraPaymentValue)
 			? Math.max(0, extraPaymentValue)
 			: 0;
+		const parsedExtraPaymentStartDate = parseIsoDateString(String(extraPaymentStartDate ?? ''));
+		const extraPaymentStartKey =
+			parsedExtraPaymentStartDate === null
+				? null
+				: monthKey(
+						new Date(
+							parsedExtraPaymentStartDate.getFullYear(),
+							parsedExtraPaymentStartDate.getMonth(),
+							1
+						)
+					);
 		const safeStartDate =
 			scheduleStartDate instanceof Date && !Number.isNaN(scheduleStartDate.getTime())
 				? scheduleStartDate
@@ -503,12 +598,17 @@
 				safeStartDate.getMonth() + (month - 1),
 				1
 			);
-			const oneTimePrincipalPayment = oneTimePaymentByMonth.get(monthKey(currentMonthDate)) ?? 0;
+			const currentMonthKey = monthKey(currentMonthDate);
+			const oneTimePrincipalPayment = oneTimePaymentByMonth.get(currentMonthKey) ?? 0;
+			const monthlyExtraPayment =
+				extraPaymentStartKey !== null && currentMonthKey < extraPaymentStartKey
+					? 0
+					: safeExtraPayment;
 
 			const principalPayment = baseMonthlyPayment - interestPayment;
 			const totalPrincipalPayment = Math.min(
 				balance,
-				Math.max(0, principalPayment + safeExtraPayment + oneTimePrincipalPayment)
+				Math.max(0, principalPayment + monthlyExtraPayment + oneTimePrincipalPayment)
 			);
 			const paymentAmount = interestPayment + totalPrincipalPayment;
 			balance = Math.max(0, balance - totalPrincipalPayment);
@@ -588,6 +688,15 @@
 			)?.id ??
 			extraPaymentScenarios[0]?.id ??
 			null;
+		if (Array.isArray(parsed?.escrowAdjustments)) {
+			escrowAdjustments = parsed.escrowAdjustments.map((adjustment, idx) =>
+				normalizeEscrowAdjustment(adjustment, idx + 1)
+			);
+		} else {
+			escrowAdjustments = [];
+		}
+		nextEscrowAdjustmentId =
+			Math.max(0, ...escrowAdjustments.map((adjustment) => Number(adjustment.id) || 0)) + 1;
 	}
 
 	function getSnapshot() {
@@ -599,6 +708,7 @@
 			extraPaymentScenarios,
 			activeExtraScenarioId,
 			monthlyEscrowPayment,
+			escrowAdjustments,
 			monthlyAssistance,
 			pmiInputMode,
 			pmiRate,
@@ -719,7 +829,7 @@
 				<legend>Escrow Payment</legend>
 				<div class="group-grid alignedInputsGrid">
 					<div class="form-group escrowPayment">
-						<label for="monthlyEscrowPayment">Monthly Escrow Payment</label>
+						<label for="monthlyEscrowPayment">Starting Monthly Escrow</label>
 						<input
 							type="text"
 							id="monthlyEscrowPayment"
@@ -787,6 +897,54 @@
 							oninput={(event) => updateMonthlyAssistanceInput(event.currentTarget.value)}
 						/>
 					</div>
+					<div class="form-group escrowAdjustments">
+						<div class="oneTimePaymentsLabel">Escrow Changes</div>
+						<p class="escrowAdjustmentsHelp">
+							Adjustments apply starting the selected month. Months before each change keep the prior
+							escrow amount.
+						</p>
+						<div class="oneTimePaymentsList">
+							{#each escrowAdjustments as adjustment (adjustment.id)}
+								<div class="oneTimePaymentRow escrowAdjustmentRow">
+									<div class="oneTimePaymentMain">
+										<div class="oneTimePaymentField">
+											<label for={`escrow-adjustment-date-${adjustment.id}`}>Effective Date</label>
+											<input
+												type="date"
+												id={`escrow-adjustment-date-${adjustment.id}`}
+												bind:value={adjustment.date}
+											/>
+										</div>
+										<div class="oneTimePaymentField">
+											<label for={`escrow-adjustment-amount-${adjustment.id}`}
+												>New Monthly Escrow</label
+											>
+											<input
+												type="text"
+												id={`escrow-adjustment-amount-${adjustment.id}`}
+												inputmode="numeric"
+												value={formatUsdInput(adjustment.monthlyAmount)}
+												oninput={(event) =>
+													updateEscrowAdjustmentAmount(adjustment, event.currentTarget.value)}
+											/>
+										</div>
+									</div>
+									<div class="oneTimePaymentActions">
+										<button
+											type="button"
+											class="removePaymentButton"
+											onclick={() => removeEscrowAdjustment(adjustment.id)}>Remove</button
+										>
+									</div>
+								</div>
+							{/each}
+							<button type="button" class="addPaymentButton" onclick={addEscrowAdjustment}>
+								{escrowAdjustments.length === 0
+									? '+ Add escrow change'
+									: '+ Add another escrow change'}
+							</button>
+						</div>
+					</div>
 				</div>
 			</fieldset>
 
@@ -831,6 +989,14 @@
 										value={formatUsdInput(scenario.extraMonthlyPayment)}
 										oninput={(event) =>
 											updateExtraMonthlyPaymentInput(scenario, event.currentTarget.value)}
+									/>
+								</div>
+								<div class="form-group extraMonthlyPaymentStartDate">
+									<label for={`extraMonthlyPaymentStartDate-${scenario.id}`}>Start Date</label>
+									<input
+										type="date"
+										id={`extraMonthlyPaymentStartDate-${scenario.id}`}
+										bind:value={scenario.extraMonthlyPaymentStartDate}
 									/>
 								</div>
 								<div class="form-group oneTimePayments">
@@ -942,7 +1108,10 @@
 		<div class="results">
 			<div class="monthlyPaymentSummary">
 				<div class="monthlyPaymentCard">
-					<span>Total Monthly Payment (No Extra)</span>
+					<span
+						>Total Monthly Payment (No Extra){#if hasEscrowAdjustments}
+							<span class="paymentTimingNote"> — current month</span>{/if}</span
+					>
 					<strong
 						>{baselineTotalMonthlyPayment.toLocaleString('en-US', {
 							style: 'currency',
@@ -1014,12 +1183,27 @@
 					</tr>
 					<tr>
 						<td>Escrow Payment:</td>
-						<td data-label={hasExtraScenario ? 'Without extra' : 'Results'} colspan="1"
-							>{monthlyEscrowPayment.toLocaleString('en-US', {
+						<td data-label={hasExtraScenario ? 'Without extra' : 'Results'} colspan="1">
+							{currentEscrowPayment.toLocaleString('en-US', {
 								style: 'currency',
 								currency: 'USD'
-							})}</td
-						>
+							})}
+							{#if hasEscrowAdjustments && currentEscrowPayment !== monthlyEscrowPayment}
+								<div class="escrowPaymentNote">
+									Started at {monthlyEscrowPayment.toLocaleString('en-US', {
+										style: 'currency',
+										currency: 'USD'
+									})}
+								</div>
+							{:else if hasEscrowAdjustments}
+								<div class="escrowPaymentNote">
+									Starting escrow {monthlyEscrowPayment.toLocaleString('en-US', {
+										style: 'currency',
+										currency: 'USD'
+									})}; changes apply on scheduled dates
+								</div>
+							{/if}
+						</td>
 						{#if hasExtraScenario}
 							<td colspan="2"></td>
 						{/if}
@@ -1371,6 +1555,12 @@
 			grid-column: 1 / -1;
 		}
 	}
+	.extraMonthlyPaymentStartDate {
+		grid-column: 3 / 5;
+		@media (max-width: 768px) {
+			grid-column: 1 / -1;
+		}
+	}
 	.loanOriginationDate {
 		grid-column: 5 / 7;
 		@media (max-width: 768px) {
@@ -1433,8 +1623,24 @@
 		outline: 2px solid var(--accentColor);
 		outline-offset: 2px;
 	}
-	.oneTimePayments {
+	.oneTimePayments,
+	.escrowAdjustments {
 		grid-column: 1 / -1;
+	}
+	.escrowAdjustmentsHelp {
+		margin: 0;
+		font-size: 0.9rem;
+		opacity: 0.8;
+		line-height: 1.4;
+	}
+	.escrowPaymentNote,
+	.paymentTimingNote {
+		font-size: 0.85rem;
+		font-weight: 400;
+		opacity: 0.75;
+	}
+	.escrowPaymentNote {
+		margin-top: 0.25rem;
 	}
 	.oneTimePaymentsList {
 		display: flex;
